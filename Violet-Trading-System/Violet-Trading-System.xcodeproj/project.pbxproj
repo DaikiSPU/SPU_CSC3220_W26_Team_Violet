@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D83B222A2F3F71B700140D02 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = D83B22292F3F71B600140D02 /* libsqlite3.tbd */; };
+		D83B222D2F3F751F00140D02 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D83B222C2F3F751F00140D02 /* main.cpp */; };
+		D83B22342F3F76C900140D02 /* Database.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D83B22332F3F76C900140D02 /* Database.cpp */; };
+		D83B22372F3F780D00140D02 /* Engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = D83B22362F3F780D00140D02 /* Engine.cpp */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		D83B221C2F3F710000140D02 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -20,21 +27,21 @@
 
 /* Begin PBXFileReference section */
 		D83B221E2F3F710000140D02 /* Violet-Trading-System */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Violet-Trading-System"; sourceTree = BUILT_PRODUCTS_DIR; };
+		D83B22292F3F71B600140D02 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		D83B222C2F3F751F00140D02 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		D83B22312F3F761600140D02 /* Models.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Models.h; sourceTree = "<group>"; };
+		D83B22322F3F769D00140D02 /* Database.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Database.h; sourceTree = "<group>"; };
+		D83B22332F3F76C900140D02 /* Database.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Database.cpp; sourceTree = "<group>"; };
+		D83B22352F3F77E700140D02 /* Engine.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Engine.h; sourceTree = "<group>"; };
+		D83B22362F3F780D00140D02 /* Engine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = Engine.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		D83B22202F3F710000140D02 /* Violet-Trading-System */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "Violet-Trading-System";
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		D83B221B2F3F710000140D02 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D83B222A2F3F71B700140D02 /* libsqlite3.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -44,7 +51,11 @@
 		D83B22152F3F710000140D02 = {
 			isa = PBXGroup;
 			children = (
-				D83B22202F3F710000140D02 /* Violet-Trading-System */,
+				D83B222C2F3F751F00140D02 /* main.cpp */,
+				D83B22302F3F757100140D02 /* Engine */,
+				D83B222F2F3F756000140D02 /* Database */,
+				D83B222E2F3F755100140D02 /* Models */,
+				D83B22282F3F71B600140D02 /* Frameworks */,
 				D83B221F2F3F710000140D02 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -55,6 +66,40 @@
 				D83B221E2F3F710000140D02 /* Violet-Trading-System */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		D83B22282F3F71B600140D02 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				D83B22292F3F71B600140D02 /* libsqlite3.tbd */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D83B222E2F3F755100140D02 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				D83B22312F3F761600140D02 /* Models.h */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		D83B222F2F3F756000140D02 /* Database */ = {
+			isa = PBXGroup;
+			children = (
+				D83B22322F3F769D00140D02 /* Database.h */,
+				D83B22332F3F76C900140D02 /* Database.cpp */,
+			);
+			path = Database;
+			sourceTree = "<group>";
+		};
+		D83B22302F3F757100140D02 /* Engine */ = {
+			isa = PBXGroup;
+			children = (
+				D83B22352F3F77E700140D02 /* Engine.h */,
+				D83B22362F3F780D00140D02 /* Engine.cpp */,
+			);
+			path = Engine;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -71,9 +116,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				D83B22202F3F710000140D02 /* Violet-Trading-System */,
 			);
 			name = "Violet-Trading-System";
 			packageProductDependencies = (
@@ -120,6 +162,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D83B22342F3F76C900140D02 /* Database.cpp in Sources */,
+				D83B22372F3F780D00140D02 /* Engine.cpp in Sources */,
+				D83B222D2F3F751F00140D02 /* main.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
