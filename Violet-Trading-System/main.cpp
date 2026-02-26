@@ -52,7 +52,7 @@ int main() {
         }
     }
 
-    // 3. The Main Trading Loop
+// 3. The Main Trading Loop
     while (true) {
         cout << "\n--- TRADING MENU ---\n";
         cout << "[1] Place BUY Order\n";
@@ -86,15 +86,46 @@ int main() {
                 clearInput(); 
                 continue; 
             }
-            else if (option == 3) {
+
+            // 3. CREATE AND SEND THE ORDER
+            Order o;
+            o.user_id = current_user_id;  
+            o.market_id = selected_market; 
+            o.side = (option == 1) ? "buy" : "sell"; 
+            o.type = "limit";             
+            o.status = "open";            
+
+            double input_price, input_qty;
+            
+            cout << "Enter Price (e.g., 500.50): $";
+            if (!(cin >> input_price)) { cout << "[ERROR] Invalid price.\n"; clearInput(); continue; }
+            
+            cout << "Enter Quantity (e.g., 10.5): ";
+            if (!(cin >> input_qty)) { cout << "[ERROR] Invalid quantity.\n"; clearInput(); continue; }
+            
+            // --- VALIDATION ---
+            if (input_price <= 0 || input_qty <= 0) {
+                cout << "[ERROR] Price and Quantity must be strictly greater than zero.\n";
+                continue;
+            }
+
+            // MULTIPLIER CONVERSION: Human Decimals -> Engine Integers
+            o.price = static_cast<long long>(input_price * 10000); 
+            o.qty = static_cast<long long>(input_qty * 10000);     
+            o.qty_remaining = o.qty;                               
+
+            // Send to backend
+            engine.placeOrder(o);
+            cout << "-> Successfully sent " << o.side << " order for Market #" << o.market_id << " to the Matching Engine.\n";
+
+        } else if (option == 3) { // This must be OUTSIDE the `if (option == 1 || 2)` block
             cout << "Logging out...\n";
             break;
-            }
-            else {
+        } else {
             cout << "[ERROR] Invalid option.\n";
-            }
+        }
     }
 
     return 0;
-    }
+    
 }

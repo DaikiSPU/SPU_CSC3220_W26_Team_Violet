@@ -80,4 +80,15 @@ struct Transaction {
     std::string created_at;      // Timestamp
 };
 
+// --- API STRUCTURES FOR UI ---
+struct OrderHistoryRow {
+    std::string time;
+    std::string market_symbol; // e.g., "SPU"
+    std::string side;          // "Buy" or "Sell"
+    double price;
+    double quantity;
+    double total;
+    std::string status;        // "Filled", "Open", etc.
+};
+
 #endif // MODELS_H

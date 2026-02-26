@@ -34,9 +34,23 @@ public:
     // Saves the trade execution
     void recordTrade(Trade& trade);
     
+    // Updates the order's remaining quantity and status after a trade
+    void updateOrder(long long order_id, long long new_qty_remaining, const std::string& new_status);
+    
     // Authentication (Matches ERD-2 Users Table)
     bool registerUser(const std::string& username, const std::string& password);
     long long loginUser(const std::string& username, const std::string& password);
+    
+    // Fetches cash for the top summary bar
+    double getAvailableCash(long long user_id);
+    
+    // Fetches order history for the table
+    std::vector<OrderHistoryRow> getUserOrderHistory(long long user_id);
+    
+    // Left Panel (The Order Book)
+    // Returns pairs of <Price, Total Size>
+    std::vector<std::pair<double, int>> getTopBuyOrders(int market_id, int limit = 5);
+    std::vector<std::pair<double, int>> getTopSellOrders(int market_id, int limit = 5);
 };
 
 #endif
