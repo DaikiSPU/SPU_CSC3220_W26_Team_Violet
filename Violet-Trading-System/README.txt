@@ -9,10 +9,14 @@ To make grading as easy as possible across different operating systems (Windows/
 
 You do NOT need to install any external SQLite libraries or configure linker paths to grade this project.
 
-HOW TO COMPILE:
-Please open your terminal in this root directory and run the following command:
+HOW TO COMPILE (Two Steps):
+Please open your terminal in this root directory and run these two commands:
 
-g++ -std=c++17 main.cpp Database/Database.cpp Engine/Engine.cpp sqlite3.c -o violet_engine
+1. Compile the SQLite C code into an object file:
+gcc -c sqlite3.c -o sqlite3.o
+
+2. Compile the C++ Trading Engine and link the object file:
+g++ -std=c++17 main.cpp Database/Database.cpp Engine/Engine.cpp sqlite3.o -o violet_engine
 
 HOW TO RUN:
 Mac/Linux:  ./violet_engine
