@@ -2,8 +2,6 @@
 //  Models.h
 //  Violet-Trading-System
 //
-//  Created by Nam Nguyen on 2/13/26.
-//
 
 #ifndef MODELS_H
 #define MODELS_H
@@ -11,9 +9,19 @@
 #include <string>
 #include <vector>
 
+// --- SHARED PROGRESSION LOGIC ---
+// Use this function to display the user's Badge/Title in the UI
+inline std::string getTraderRank(double cash) {
+    if (cash < 25000) return "ROOKIE DUELIST";
+    if (cash < 100000) return "ELITE TRADER";
+    if (cash < 500000) return "MARKET MASTER";
+    if (cash < 1000000) return "DUEL KING";
+    return "LEGENDARY WHALE";
+}
+
 // Core Identity
 struct User {
-    long long user_id;           // PK
+    long long user_id;           
     std::string username;
     std::string password_hash;
     std::string pin_hash;
@@ -22,73 +30,73 @@ struct User {
 
 // Financial Account
 struct Account {
-    long long account_id;        // PK
-    long long user_id;           // FK -> User
-    long long cash_balance;      // Stored in cents (e.g., $100.00 = 10000)
-    long long cash_available;    // Balance minus open orders
+    long long account_id;        
+    long long user_id;           
+    long long cash_balance;      
+    long long cash_available;    
 };
 
 // Market Configuration
 struct Market {
-    long long market_id;         // PK
-    std::string symbol;          // e.g., "BTC/USD"
-    long long tick_size;         // Min price movement (in cents)
-    long long lot_size;          // Min quantity movement
-    std::string status;          // "open" or "closed"
+    long long market_id;         
+    std::string symbol;          
+    long long tick_size;         
+    long long lot_size;          
+    std::string status;          
 };
 
 // Bot Identity
 struct Bot {
-    long long bot_id;            // PK
+    long long bot_id;            
     std::string bot_name;
-    std::string bot_type;        // e.g., "market_maker"
+    std::string bot_type;        
 };
 
 // Order Book Entry
 struct Order {
-    long long order_id;          // PK
-    long long user_id;           // Optional FK
-    long long bot_id;            // Optional FK
-    long long market_id;         // FK
-    std::string side;            // "buy" or "sell"
-    std::string type;            // "limit" or "market"
+    long long order_id;          
+    long long user_id;           
+    long long bot_id;            
+    long long market_id;         
+    std::string side;            
+    std::string type;            
     long long price;             // Stored as fixed-point cents
-    long long qty;               // Original quantity
-    long long qty_remaining;     // For partial fills
-    std::string status;          // "open", "filled", "partial", "canceled"
+    long long qty;               
+    long long qty_remaining;     
+    std::string status;          
 };
 
 // Matched Execution
 struct Trade {
-    long long trade_id;          // PK
-    long long market_id;         // FK
-    long long buy_order_id;      // FK -> Order
-    long long sell_order_id;     // FK -> Order
-    long long price;             // Execution price
-    long long qty;               // Execution quantity
-    std::string executed_at;     // Timestamp
+    long long trade_id;          
+    long long market_id;         
+    long long buy_order_id;      
+    long long sell_order_id;     
+    long long price;             
+    long long qty;               
+    std::string executed_at;     
 };
 
 // Audit Trail
 struct Transaction {
-    long long txn_id;            // PK
-    long long user_id;           // FK
-    long long trade_id;          // FK
-    std::string kind;            // "buy", "sell", or "fee"
-    long long amount_cash;       // Impact on cash balance
-    long long amount_qty;        // Impact on holdings
-    std::string created_at;      // Timestamp
+    long long txn_id;            
+    long long user_id;           
+    long long trade_id;          
+    std::string kind;            
+    long long amount_cash;       
+    long long amount_qty;        
+    std::string created_at;      
 };
 
 // --- API STRUCTURES FOR UI ---
 struct OrderHistoryRow {
     std::string time;
-    std::string market_symbol; // e.g., "SPU"
-    std::string side;          // "Buy" or "Sell"
+    std::string market_symbol; 
+    std::string side;          
     double price;
     double quantity;
     double total;
-    std::string status;        // "Filled", "Open", etc.
+    std::string status;        
 };
 
 #endif // MODELS_H
