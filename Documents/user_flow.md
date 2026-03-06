@@ -7,7 +7,7 @@
 1. User clicks "Create".
 1. System hashes password and pin number.
 1. System stores username, hased password, and hashed pin number in DB.
-1. If it's completed, user is redirected to Main Trading Page.
+1. If it's completed, user is redirected to Login Page.
 1. If it's failed, an error message is popped up in Create Account Page.
 
 # Login Page
