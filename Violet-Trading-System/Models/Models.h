@@ -47,7 +47,7 @@ struct Market {
 
 // Bot Identity
 struct Bot {
-    long long bot_id;            
+    int bot_id;            
     std::string bot_name;
     std::string bot_type;        
 };
@@ -55,8 +55,8 @@ struct Bot {
 // Order Book Entry
 struct Order {
     long long order_id;          
-    long long user_id;           
-    long long bot_id;            
+    int user_id;           
+    int bot_id;            
     long long market_id;         
     std::string side;            
     std::string type;            
