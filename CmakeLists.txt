@@ -1,0 +1,117 @@
+cmake_minimum_required(VERSION 3.21)
+
+set(CMAKE_TOOLCHAIN_FILE "$ENV{HOME}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    CACHE STRING "Vcpkg toolchain file")
+
+project(CSC3220)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(OpenGL REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+find_package(unofficial-sodium CONFIG REQUIRED)
+
+file(GLOB CORE_SOURCES
+    ${CMAKE_SOURCE_DIR}/core/*.cpp
+    ${CMAKE_SOURCE_DIR}/core/*.h
+)
+
+file(GLOB MODEL_SOURCES
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/Models/*.h
+)
+
+file(GLOB DB_SOURCES
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/Database/*.cpp
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/Database/*.h
+)
+
+file(GLOB SQL_SOURCES
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/sqlite3.c
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/sqlite3.h
+)
+
+file(GLOB GUI_SOURCES
+    ${CMAKE_SOURCE_DIR}/gui/*.cpp
+    ${CMAKE_SOURCE_DIR}/gui/*.h
+    ${CMAKE_SOURCE_DIR}/gui/components/*.cpp
+    ${CMAKE_SOURCE_DIR}/gui/components/*.h
+)
+
+file(GLOB ENUMS_SOURCES
+    ${CMAKE_SOURCE_DIR}/enums/*.cpp
+    ${CMAKE_SOURCE_DIR}/enums/*.h
+)
+
+file(GLOB BACKENDS_SOURCES
+    ${CMAKE_SOURCE_DIR}/backends/services/*.cpp
+    ${CMAKE_SOURCE_DIR}/backends/services/*.h
+)
+
+file(GLOB ENGINE_SOURCES
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/Engine/*.cpp
+    ${CMAKE_SOURCE_DIR}/Violet-Trading-System/Engine/*.h
+)
+
+file(GLOB BOTS_SOURCES
+    ${CMAKE_SOURCE_DIR}/Bots/*.cpp
+    ${CMAKE_SOURCE_DIR}/Bots/*.h
+    ${CMAKE_SOURCE_DIR}/Bots/NoiseBot/*.cpp
+    ${CMAKE_SOURCE_DIR}/Bots/NoiseBot/*.h
+    ${CMAKE_SOURCE_DIR}/Bots/MarketMakerBot/*.cpp
+    ${CMAKE_SOURCE_DIR}/Bots/MarketMakerBot/*.h
+    ${CMAKE_SOURCE_DIR}/Bots/PanicBot/*.cpp
+    ${CMAKE_SOURCE_DIR}/Bots/PanicBot/*.h
+    ${CMAKE_SOURCE_DIR}/Bots/WhaleBot/*.cpp
+    ${CMAKE_SOURCE_DIR}/Bots/WhaleBot/*.h
+)
+
+add_executable(CSC3220
+    main.cpp
+
+    ${CORE_SOURCES}
+    ${MODEL_SOURCES}
+    ${DB_SOURCES}
+    ${SQL_SOURCES}
+    ${GUI_SOURCES}
+    ${ENUMS_SOURCES}
+    ${BACKENDS_SOURCES}
+    ${BOTS_SOURCES}
+    ${ENGINE_SOURCES}
+    
+    gui/imgui/imgui.cpp
+    gui/imgui/imgui_draw.cpp
+    gui/imgui/imgui_widgets.cpp
+    gui/imgui/imgui_tables.cpp
+    gui/imgui/imgui_demo.cpp
+
+    gui/imgui/backends/imgui_impl_glfw.cpp
+    gui/imgui/backends/imgui_impl_opengl3.cpp
+)
+
+target_include_directories(CSC3220 PRIVATE
+    core
+    gui
+    gui/components
+    gui/imgui
+    gui/imgui/backends
+    backends
+    backends/services
+    enums
+    Violet-Trading-System
+    Violet-Trading-System/Database
+    Violet-Trading-System/Models
+    Violet-Trading-System/Engine
+    Bots
+    Bots/MarketMakerBot
+    Bots/NoiseBot
+    Bots/PanicBot
+    Bots/WhaleBot
+
+)
+
+target_link_libraries(CSC3220 PRIVATE
+    glfw
+    unofficial-sodium::sodium
+    OpenGL::GL
+)
