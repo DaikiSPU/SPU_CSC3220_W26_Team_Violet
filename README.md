@@ -3,4 +3,5 @@
 | Name | Email | Phone | GitHub ID |
 | --- | --- | --- | --- |
 | Daiki Hagiwara | hagiwarad@spu.edu | 206-886-2005 | DaikiSPU |
-| name | email | phone num | id |
+| Nam Nguyen | nguyenn25@spu.edu | 206-816-5328 | nguyenn25 |
+| Noi Brown | noibrown11@gmail.com | 206-307-1222 | NoiBrown |
