@@ -36,7 +36,7 @@ long long BotBase::getMidPrice(Database &db, int market_id)
 
 void BotBase::sendLimitOrder(int market_id, const std::string &side, long long price, long long qty)
 {
-    printf("SEND LITMIT ORDER[%s] -> botId=%d price=%lld qty=%lld\n", side.c_str(), botId, price, qty);
+    // printf("SEND LITMIT ORDER[%s] -> botId=%d price=%lld qty=%lld\n", side.c_str(), botId, price, qty);
     Order order;
 
     order.user_id = 0;

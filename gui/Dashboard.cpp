@@ -264,10 +264,10 @@ PageType Dashboard::header(ImGuiViewport* viewport)
 void Dashboard::orderBookWindow()
 {
     auto book = backend.refreshOrderBook(current_market_id);
-    printf("DEBUG market=%d asks=%zu bids=%zu\n",
-       current_market_id,
-       book.asks.size(),
-       book.bids.size());
+    // printf("DEBUG market=%d asks=%zu bids=%zu\n",
+    //    current_market_id,
+    //    book.asks.size(),
+    //    book.bids.size());
     /* ================= ORDER BOOK WINDOW ================= */
     // Begin OrderBook window
     ImGui::Begin("OrderBook");

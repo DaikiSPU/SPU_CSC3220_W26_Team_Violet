@@ -90,8 +90,9 @@ void Engine::cleanTopBuyBook(int market_id)
 
         if (cancelledOrders.count(top.order_id))
         {
-            cancelledOrders.erase(top.order_id);   // ★ここ
+            cancelledOrders.erase(top.order_id);
             book.pop();
+            printf("top buy order id cancelled: %lld\n", top.order_id);
             continue;
         }
 
@@ -117,7 +118,7 @@ void Engine::cleanTopSellBook(int market_id)
 
         if (cancelledOrders.count(top.order_id))
         {
-            cancelledOrders.erase(top.order_id);   // ★ここ
+            cancelledOrders.erase(top.order_id);
             book.pop();
             continue;
         }

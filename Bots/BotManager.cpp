@@ -56,7 +56,7 @@ Result<void> BotManager::createBots(Database& db, Engine& engine)
     addBot(std::move(noiseResult.value));
 
     // PanicBot
-    auto panicResult = MarketMakerBot::create(db, engine);
+    auto panicResult = PanicBot::create(db, engine);
     if (!panicResult.isSuccess())
     {
         result.setError(ErrorType::Fatal, panicResult.error.getMessage());
@@ -66,7 +66,7 @@ Result<void> BotManager::createBots(Database& db, Engine& engine)
     addBot(std::move(panicResult.value));
 
     // WhaleBot
-    auto whaleResult = MarketMakerBot::create(db, engine);
+    auto whaleResult = WhaleBot::create(db, engine);
     if (!whaleResult.isSuccess())
     {
         result.setError(ErrorType::Fatal, whaleResult.error.getMessage());

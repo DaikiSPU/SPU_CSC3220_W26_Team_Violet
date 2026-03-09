@@ -2,6 +2,7 @@
 
 #include "Engine.h"
 #include "Database.h"
+#include <memory>
 
 struct MarketInfo
 {
