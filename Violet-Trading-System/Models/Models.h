@@ -63,7 +63,8 @@ struct Order {
     long long price;             // Stored as fixed-point cents
     long long qty;               
     long long qty_remaining;     
-    std::string status;          
+    std::string status;
+    long long created_at;        
 };
 
 // Matched Execution

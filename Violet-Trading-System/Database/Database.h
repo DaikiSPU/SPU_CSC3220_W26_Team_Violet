@@ -32,7 +32,7 @@ public:
     
     std::vector<std::pair<int, std::string>> getAvailableMarkets();
     
-    Result<long long> addOrder(const Order& order);
+    Result<std::pair<long long,long long>> addOrder(const Order& order);
     Result<bool> recordTradeAndUpdateOrders(
         const Trade& t,
         long long buy_id,
@@ -45,7 +45,6 @@ public:
     Result<bool> recordTrade(const Trade& trade);
     Result<void> updateOrder(long long order_id, long long new_qty_remaining, const std::string& new_status);
     Result<bool> isOrderOpen(long long order_id);
-    Result<std::vector<int>> cancelUnusedBotOrders(int bot_id,int market_id,const std::string& side,long long mid_price,long long price_distance_limit,int max_orders_on_side,int max_order_age_seconds);
 
     Result<bool> hasAnyUser();
     Result<bool> registerUser(const std::string& username, const std::string& password, const std::string& pinHash);

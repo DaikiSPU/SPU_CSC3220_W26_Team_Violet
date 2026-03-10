@@ -54,16 +54,22 @@ private:
     void match(int market_id); 
     void matchMarketOrder(Order& incoming);
 
-    std::unordered_set<int> cancelledOrders;
+    void cleanTopBuyBook(int market_id);
+    void cleanTopSellBook(int market_id);
+
+    std::unordered_map<long long, int> orderMarketMap;
 
 public:
     Engine(Database& database);
     Result<void> placeOrder(Order new_order);
     OrderBookSnapshot getOrderBook(int market_id);
-    void markOrdersCancelled(const std::vector<int>& ids);
 
-    void cleanTopBuyBook(int market_id);
-    void cleanTopSellBook(int market_id);
+    std::vector<Order> getBuyOrders(int market_id);
+    std::vector<Order> getSellOrders(int market_id);
+
+    void cleanupCancelledAndFilled(int market_id);
+
+    Result<void> cancelOrder(long long order_id);
 };
 
 #endif

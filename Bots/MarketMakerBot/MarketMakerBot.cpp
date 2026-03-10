@@ -15,62 +15,37 @@ MarketMakerBot::MarketMakerBot(Database& db, Engine& engine, int botId) : BotBas
 
 void MarketMakerBot::run(int tick)
 {
-    printf("RUN botId=%d\n", botId);
     if (markets.empty())
         return;
 
     for (auto& m : markets)
     {
-        printf("Market ID: %d\n", m.marketId);
-        long long qtyMultiplier = (rand() % 10) + 1; // 1 to 5 lots
-        long long qty = qtyMultiplier * m.lotSize;
-
-        long long spread = 2 * m.tickSize;
-
-        printf("spread: %lld\n", spread);
-
         long long mid = getMidPrice(db, m.marketId);
 
-        auto cancelBuyResult = db.cancelUnusedBotOrders(
-            botId,
-            m.marketId,
-            "buy",
-            mid,
-            10 * m.tickSize, // price_distance_limit
-            3,   // max_orders_per_side
-            30   // max_order_age_seconds
-        );
+        cancelFarOrders(m.marketId, mid, m.tickSize);
 
-        if (cancelBuyResult.isSuccess())
-        {
-            engine.markOrdersCancelled(cancelBuyResult.value);
-            engine.cleanTopBuyBook(m.marketId);
-        }
+        cancelOldOrders(m.marketId);
 
-        auto cancelSellResult = db.cancelUnusedBotOrders(
-            botId,
-            m.marketId,
-            "sell",
-            mid,
-            10 * m.tickSize, // price_distance_limit
-            3,   // max_orders_per_side
-            30   // max_order_age_seconds
-        );
-
-        if (cancelSellResult.isSuccess())
-        {
-            engine.markOrdersCancelled(cancelSellResult.value);
-            engine.cleanTopSellBook(m.marketId);
-        }
+        long long qtyMultiplier = (rand() % 10) + 1; // 1 to 5 lots
+        long long qty = qtyMultiplier * m.lotSize;
 
         for (int i=1;i<=levels;i++)
         {
             long long buyPrice  = mid - i*m.tickSize;
             long long sellPrice = mid + i*m.tickSize;
 
-            sendLimitOrder(m.marketId,"buy", buyPrice, qty);
-            sendLimitOrder(m.marketId,"sell", sellPrice, qty);
+            if (countMyOrdersAtPrice(m.marketId,"sell",sellPrice) < sameOrder)
+            {
+                sendLimitOrder(m.marketId,"sell", sellPrice, qty);
+            }
+
+            if (countMyOrdersAtPrice(m.marketId,"buy",buyPrice) < sameOrder)
+            {
+                sendLimitOrder(m.marketId,"buy", buyPrice, qty);
+            }
         }
+
+        // printf("RUN botId=%d marketId=%d spread=%lld mid=%lld\n", botId, m.marketId, spread, mid);
     }
 }
 
@@ -98,4 +73,86 @@ Result<std::unique_ptr<BotBase>> MarketMakerBot::create(Database& db, Engine& en
 
     result.value = std::move(bot);
     return result;
+}
+
+int MarketMakerBot::countMyOrdersAtPrice(
+    int market_id,
+    const std::string& side,
+    long long price)
+{
+    int count = 0;
+
+    auto orders =
+        (side == "buy") ? engine.getBuyOrders(market_id)
+                        : engine.getSellOrders(market_id);
+
+    for (const auto& o : orders)
+    {
+        if (o.bot_id == botId &&
+            o.price == price &&
+            o.qty_remaining > 0)
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+void MarketMakerBot::cancelFarOrders(int marketId, long long mid, long long tickSize)
+{
+    auto sells = engine.getSellOrders(marketId);
+
+    for (auto& o : sells)
+    {
+        if (o.bot_id != botId)
+            continue;
+
+        if (std::llabs(o.price - mid) > deleteThreshold * tickSize)
+        {
+            engine.cancelOrder(o.order_id);
+        }
+    }
+
+    auto buys = engine.getBuyOrders(marketId);
+
+    for (auto& o : buys)
+    {
+        if (o.bot_id != botId)
+            continue;
+
+        if (std::llabs(o.price - mid) > deleteThreshold * tickSize)
+        {
+            engine.cancelOrder(o.order_id);
+        }
+    }
+}
+
+void MarketMakerBot::cancelOldOrders(int marketId)
+{
+    auto sells = engine.getSellOrders(marketId);
+
+    for (auto& o : sells)
+    {
+        if (o.bot_id != botId)
+            continue;
+
+        if (std::time(nullptr) - o.created_at > orderMaxAge)
+        {
+            engine.cancelOrder(o.order_id);
+        }
+    }
+
+    auto buys = engine.getBuyOrders(marketId);
+
+    for (auto& o : buys)
+    {
+        if (o.bot_id != botId)
+            continue;
+
+        if (std::time(nullptr) - o.created_at > orderMaxAge)
+        {
+            engine.cancelOrder(o.order_id);
+        }
+    }
 }

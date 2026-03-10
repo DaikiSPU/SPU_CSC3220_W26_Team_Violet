@@ -3,6 +3,7 @@
 #include "Engine.h"
 #include "Database.h"
 #include <memory>
+#include <ctime>
 
 struct MarketInfo
 {

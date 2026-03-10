@@ -9,8 +9,16 @@ class MarketMakerBot : public BotBase {
             Database& db,
             Engine& engine
         );
+
     private:
         static constexpr std::string_view BOT_NAME = "System_MarketMaker";
-        const int activityRate = 15;
+        const int activityRate = 9;
         const int levels = 3;
+        const int sameOrder = 2;
+        const int deleteThreshold = 10;
+        const int orderMaxAge = 30;
+
+        int countMyOrdersAtPrice(int market_id, const std::string& side, long long price);
+        void cancelFarOrders(int marketId, long long mid, long long tick);
+        void cancelOldOrders(int marketId);
 };

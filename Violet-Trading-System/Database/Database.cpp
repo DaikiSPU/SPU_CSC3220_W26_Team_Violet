@@ -315,38 +315,35 @@ void Database::initTables() {
                 "WHERE status IN ('open','partial');");
 }
 
-Result<long long> Database::addOrder(const Order& order)
+Result<std::pair<long long,long long>> Database::addOrder(const Order& order)
 {
-    Result<long long> result;
+    Result<std::pair<long long,long long>> result;
 
     const char* sql =
         "INSERT INTO Orders "
         "(user_id, bot_id, market_id, side, type, price, qty, qty_remaining, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);";
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) "
+        "RETURNING order_id, strftime('%s', created_at);";
 
     sqlite3_stmt* stmt = nullptr;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
-        std::cerr << "[DB] addOrder prepare failed: " << sqlite3_errmsg(db) << ". " << "BOTID: " << order.bot_id << std::endl;
         result.setError(ErrorType::Database, sqlite3_errmsg(db));
-        result.value = -1;
         return result;
     }
 
-    // user_id (userなら>0 / botならNULL)
+    // user_id
     if (order.user_id > 0)
-    {
         sqlite3_bind_int(stmt, 1, order.user_id);
-    }
     else
-    {
         sqlite3_bind_null(stmt, 1);
-    }
 
-    // bot_id (botなら>0 / userならNULL)
-    if (order.bot_id > 0) sqlite3_bind_int64(stmt, 2, order.bot_id);
-    else sqlite3_bind_null(stmt, 2);
+    // bot_id
+    if (order.bot_id > 0)
+        sqlite3_bind_int(stmt, 2, order.bot_id);
+    else
+        sqlite3_bind_null(stmt, 2);
 
     sqlite3_bind_int(stmt, 3, order.market_id);
     sqlite3_bind_text(stmt, 4, order.side.c_str(), -1, SQLITE_TRANSIENT);
@@ -357,17 +354,20 @@ Result<long long> Database::addOrder(const Order& order)
 
     int rc = sqlite3_step(stmt);
 
-    if (rc != SQLITE_DONE)
+    if (rc == SQLITE_ROW)
     {
-        std::cerr << "[DB] addOrder prepare failed: " << sqlite3_errmsg(db) << ". " << "BOTID: " << order.bot_id << std::endl;
-        sqlite3_finalize(stmt);
+        long long order_id = sqlite3_column_int64(stmt, 0);
+        long long created_at = sqlite3_column_int64(stmt, 1);
+
+        result.value = {order_id, created_at};
+    }
+    else
+    {
         result.setError(ErrorType::Database, sqlite3_errmsg(db));
-        result.value = -1;
-        return result;
     }
 
     sqlite3_finalize(stmt);
-    result.value = sqlite3_last_insert_rowid(db);
+
     return result;
 }
 
@@ -538,128 +538,6 @@ Result<bool> Database::isOrderOpen(long long order_id)
 
     sqlite3_finalize(stmt);
     return result;
-}
-
-Result<std::vector<int>> Database::cancelUnusedBotOrders(
-    int bot_id,
-    int market_id,
-    const std::string& side,
-    long long mid_price,
-    long long price_distance_limit,
-    int max_orders_on_side,
-    int max_order_age_seconds)
-{
-    Result<std::vector<int>> cancelledIdsResult;
-
-    if (side != "buy" && side != "sell")
-    {
-        cancelledIdsResult.setError(ErrorType::Validation, "side must be 'buy' or 'sell'");
-        return cancelledIdsResult;
-    }
-
-    auto tx = beginTransaction();
-    if (!tx.isSuccess())
-    {
-        cancelledIdsResult.setError(ErrorType::Database, tx.error.getMessage());
-        return cancelledIdsResult;
-    }
-
-    /* -------- 1. cancel far orders -------- */
-
-    std::string cancelFarSql =
-        "UPDATE Orders SET status='cancelled', updated_at=CURRENT_TIMESTAMP "
-        "WHERE bot_id=" + std::to_string(bot_id) +
-        " AND market_id=" + std::to_string(market_id) +
-        " AND side='" + side + "' "
-        " AND status='open' "
-        " AND ABS(price - " + std::to_string(mid_price) + ") > " +
-        std::to_string(price_distance_limit) +
-        " RETURNING order_id;";
-
-    auto farRowsResult = executeQueryWithResult(cancelFarSql);
-    if (!farRowsResult.isSuccess())
-    {
-        rollback();
-        cancelledIdsResult.setError(ErrorType::Database, farRowsResult.error.getMessage());
-        return cancelledIdsResult;
-    }
-
-    for (auto& r : farRowsResult.value)
-        cancelledIdsResult.value.push_back(r);
-
-    int cancelledFar = sqlite3_changes(db);
-
-    /* -------- 2. cancel old orders -------- */
-
-    std::string cancelOldSql =
-        "UPDATE Orders SET status='cancelled', updated_at=CURRENT_TIMESTAMP "
-        "WHERE bot_id=" + std::to_string(bot_id) +
-        " AND market_id=" + std::to_string(market_id) +
-        " AND side='" + side + "' "
-        " AND status='open' "
-        " AND strftime('%s','now') - strftime('%s', created_at) > " +
-        std::to_string(max_order_age_seconds) +
-        " RETURNING order_id;";
-
-    auto oldRowsResult = executeQueryWithResult(cancelOldSql);
-    if (!oldRowsResult.isSuccess())
-    {
-        rollback();
-        cancelledIdsResult.setError(ErrorType::Database, oldRowsResult.error.getMessage());
-        return cancelledIdsResult;
-    }
-    for (auto& r : oldRowsResult.value)
-        cancelledIdsResult.value.push_back(r);
-
-    int cancelledOld = sqlite3_changes(db);
-
-    /* -------- 3. cancel excess orders -------- */
-
-    std::string cancelExtraSql =
-        "UPDATE Orders SET status='cancelled', updated_at=CURRENT_TIMESTAMP "
-        "WHERE order_id IN ("
-        "  SELECT order_id FROM Orders "
-        "  WHERE bot_id=" + std::to_string(bot_id) +
-        "    AND market_id=" + std::to_string(market_id) +
-        "    AND side='" + side + "' "
-        "    AND status='open' "
-        "  ORDER BY created_at ASC, order_id ASC "
-        "  LIMIT -1 OFFSET " + std::to_string(max_orders_on_side) +
-        ") RETURNING order_id;";
-
-    auto extraRowsResult = executeQueryWithResult(cancelExtraSql);
-    if (!extraRowsResult.isSuccess())
-    {
-        rollback();
-        cancelledIdsResult.setError(ErrorType::Database, extraRowsResult.error.getMessage());
-        return cancelledIdsResult;
-    }
-    for (auto& r : extraRowsResult.value)
-        cancelledIdsResult.value.push_back(r);
-
-    int cancelledExtra = sqlite3_changes(db);
-
-    /* -------- commit -------- */
-
-    auto commitResult = commit();
-    if (!commitResult.isSuccess())
-    {
-        rollback();
-        cancelledIdsResult.setError(ErrorType::Database, commitResult.error.getMessage());
-        return cancelledIdsResult;
-    }
-
-    /* -------- debug print -------- */
-
-    printf("[BotCancel] bot=%d market=%d side=%s | far=%d old=%d extra=%d\n",
-           bot_id,
-           market_id,
-           side.c_str(),
-           cancelledFar,
-           cancelledOld,
-           cancelledExtra);
-
-    return cancelledIdsResult;
 }
 
 Result<bool> Database::hasAnyUser()

@@ -22,15 +22,12 @@ long long BotBase::getMidPrice(Database &db, int market_id)
     if (!bids.empty() && !asks.empty())
     {
         mid = (bids[0].first + asks[0].first) / 2;
-        printf("used order book\n");
     }
     else
     {
         mid = lastPrice;
-        printf("used lastprice\n");
     }
 
-    printf("GET MID DPRICE -> botId=%d mid=%lld\n", botId, mid);
     return mid;
 }
 

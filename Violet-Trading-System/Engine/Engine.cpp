@@ -12,18 +12,21 @@ Engine::Engine(Database& database) : db(database) {
 
 Result<void> Engine::placeOrder(Order new_order) {
     Result<void> placeOrderResult;
-    Result<long long> dbIdResult = db.addOrder(new_order);
+    Result<std::pair<long long,long long>> dbResult = db.addOrder(new_order);
 
-    if (!dbIdResult.isSuccess())
+    if (!dbResult.isSuccess())
     {
         std::cerr << "[Engine] addOrder failed: "
-                << dbIdResult.error.getMessage()
+                << dbResult.error.getMessage()
                 << std::endl;
-        placeOrderResult.setError(ErrorType::Database, dbIdResult.error.getMessage());
+        placeOrderResult.setError(ErrorType::Database, dbResult.error.getMessage());
         return placeOrderResult;
     }
 
-    new_order.order_id = dbIdResult.value;
+    new_order.order_id = dbResult.value.first;
+    new_order.created_at = dbResult.value.second;
+
+    orderMarketMap[new_order.order_id] = new_order.market_id;
 
     if (new_order.type == "market")
     {
@@ -71,28 +74,57 @@ OrderBookSnapshot Engine::getOrderBook(int market_id)
     return snapshot;
 }
 
-void Engine::markOrdersCancelled(const std::vector<int>& ids)
+void Engine::cleanupCancelledAndFilled(int market_id)
 {
-    printf("markOrdersCancelled: %zu\n", ids.size());
-    for (int id : ids)
-        cancelledOrders.insert(id);
+    cleanTopBuyBook(market_id);
+    cleanTopSellBook(market_id);
+}
+
+Result<void> Engine::cancelOrder(long long order_id)
+{
+    Result<void> result;
+
+    auto it = orderMarketMap.find(order_id);
+
+    if (it == orderMarketMap.end())
+    {
+        result.setError(ErrorType::Validation, "order_id not found in orderMarketMap");
+        return result;
+    }
+
+    int market_id = it->second;
+
+    Result<void> dbResult = db.updateOrder(order_id, 0, "canceled");
+
+    if (!dbResult.isSuccess())
+    {
+        result.setError(ErrorType::Database, dbResult.error.getMessage());
+        return result;
+    }
+
+    // map cleanup
+    orderMarketMap.erase(it);
+
+    // memory cleanup
+    cleanupCancelledAndFilled(market_id);
+
+    return result;
 }
 
 void Engine::cleanTopBuyBook(int market_id)
 {
     auto& book = buyBooks[market_id];
 
-    printf("cancel orders: %zu\n", cancelledOrders.size());
-
     while (!book.empty())
     {
         Order top = book.top();
 
-        if (cancelledOrders.count(top.order_id))
+        // DBの状態を確認
+        auto openResult = db.isOrderOpen(top.order_id);
+
+        if (!openResult.isSuccess() || !openResult.value)
         {
-            cancelledOrders.erase(top.order_id);
             book.pop();
-            printf("top buy order id cancelled: %lld\n", top.order_id);
             continue;
         }
 
@@ -104,8 +136,6 @@ void Engine::cleanTopBuyBook(int market_id)
 
         break;
     }
-
-    printf("remained cancel orders: %zu\n", cancelledOrders.size());
 }
 
 void Engine::cleanTopSellBook(int market_id)
@@ -116,9 +146,10 @@ void Engine::cleanTopSellBook(int market_id)
     {
         Order top = book.top();
 
-        if (cancelledOrders.count(top.order_id))
+        auto openResult = db.isOrderOpen(top.order_id);
+
+        if (!openResult.isSuccess() || !openResult.value)
         {
-            cancelledOrders.erase(top.order_id);
             book.pop();
             continue;
         }
@@ -140,7 +171,8 @@ void Engine::match(int market_id)
 
     while (true)
     {
-
+        cleanTopBuyBook(market_id);
+        cleanTopSellBook(market_id);
         if (buys.empty() || sells.empty())
             break;
 
@@ -335,4 +367,32 @@ void Engine::matchMarketOrder(Order& incoming)
                       << std::endl;
         }
     }
+}
+
+std::vector<Order> Engine::getBuyOrders(int market_id)
+{
+    std::vector<Order> orders;
+    auto copy = buyBooks[market_id];
+
+    while (!copy.empty())
+    {
+        orders.push_back(copy.top());
+        copy.pop();
+    }
+
+    return orders;
+}
+
+std::vector<Order> Engine::getSellOrders(int market_id)
+{
+    std::vector<Order> orders;
+    auto copy = sellBooks[market_id];
+
+    while (!copy.empty())
+    {
+        orders.push_back(copy.top());
+        copy.pop();
+    }
+
+    return orders;
 }
