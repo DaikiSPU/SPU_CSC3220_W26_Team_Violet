@@ -70,4 +70,5 @@ class Dashboard : public Page {
         int current_market_id;
         int selectedMarketId;
         int qty = 0;
+        int price = 0;
 };

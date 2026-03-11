@@ -7,31 +7,42 @@ BotBase::BotBase(Database &db, Engine &engine, int botId) : db(db), engine(engin
 
 long long BotBase::getMidPrice(Database &db, int market_id)
 {
-    long long lastPrice = db.getLastPriceRaw(market_id);
+    // ---- Last Price ----
+    long long lastPrice = 0;
+
+    auto lastResult = db.getLastPriceRaw(market_id);
+
+    if (lastResult.isSuccess())
+    {
+        lastPrice = lastResult.value;
+    }
 
     if (lastPrice == 0)
     {
-        lastPrice = db.getReferencePrice(market_id).value;
+        auto refResult = db.getReferencePrice(market_id);
+
+        if (refResult.isSuccess())
+            lastPrice = refResult.value;
     }
 
+    // ---- OrderBook ----
     auto bids = db.getTopBuyOrders(market_id, 1);
     auto asks = db.getTopSellOrders(market_id, 1);
 
-    long long mid;
+    long long mid = lastPrice;
 
     if (!bids.empty() && !asks.empty())
     {
-        mid = (bids[0].first + asks[0].first) / 2;
-    }
-    else
-    {
-        mid = lastPrice;
+        long long bestBid = bids[0].first;
+        long long bestAsk = asks[0].first;
+
+        mid = (bestBid + bestAsk) / 2;
     }
 
     return mid;
 }
 
-void BotBase::sendLimitOrder(int market_id, const std::string &side, long long price, long long qty)
+Result<void> BotBase::sendLimitOrder(int market_id, const std::string &side, long long price, long long qty)
 {
     // printf("SEND LITMIT ORDER[%s] -> botId=%d price=%lld qty=%lld\n", side.c_str(), botId, price, qty);
     Order order;
@@ -48,7 +59,8 @@ void BotBase::sendLimitOrder(int market_id, const std::string &side, long long p
     order.qty = qty;
     order.qty_remaining = qty;
 
-    engine.placeOrder(order);
+    Result<void> result = engine.placeOrder(order);
+    return result;
 }
 
 void BotBase::sendMarketOrder(int market_id, const std::string& side, long long qty)

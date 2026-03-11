@@ -21,7 +21,11 @@ void PanicBot::run(int tick)
     for (auto& m : markets)
     {
         long long mid = getMidPrice(db, m.marketId);
-        long long last = db.getLastPriceRaw(m.marketId);
+        auto lastResult = db.getLastPriceRaw(m.marketId);
+        if (!lastResult.isSuccess())
+            return;
+
+        long long last = lastResult.value;
 
         // ---- CIRCUIT BREAKER ----
         if (last < mid * 0.90)

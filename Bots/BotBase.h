@@ -35,7 +35,7 @@ class BotBase {
         long long getMidPrice(Database& db, int market_id);
 
         // Send limit order
-        void sendLimitOrder(
+        Result<void> sendLimitOrder(
             int market_id,
             const std::string& side,
             long long price,

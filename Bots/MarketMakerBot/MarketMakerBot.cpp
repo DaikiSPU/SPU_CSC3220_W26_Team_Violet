@@ -15,6 +15,7 @@ MarketMakerBot::MarketMakerBot(Database& db, Engine& engine, int botId) : BotBas
 
 void MarketMakerBot::run(int tick)
 {
+    Result<void> result; 
     if (markets.empty())
         return;
 
@@ -26,6 +27,8 @@ void MarketMakerBot::run(int tick)
 
         cancelOldOrders(m.marketId);
 
+        inventoryControl(m.marketId);
+
         long long qtyMultiplier = (rand() % 10) + 1; // 1 to 5 lots
         long long qty = qtyMultiplier * m.lotSize;
 
@@ -36,12 +39,20 @@ void MarketMakerBot::run(int tick)
 
             if (countMyOrdersAtPrice(m.marketId,"sell",sellPrice) < sameOrder)
             {
-                sendLimitOrder(m.marketId,"sell", sellPrice, qty);
+                result = sendLimitOrder(m.marketId,"sell", sellPrice, qty);
+                if (!result.isSuccess())
+                {
+                    printf("%s\n", result.error.getMessage().c_str());
+                }
             }
 
             if (countMyOrdersAtPrice(m.marketId,"buy",buyPrice) < sameOrder)
             {
-                sendLimitOrder(m.marketId,"buy", buyPrice, qty);
+                result = sendLimitOrder(m.marketId,"buy", buyPrice, qty);
+                if (!result.isSuccess())
+                {
+                    printf("%s\n", result.error.getMessage().c_str());
+                }
             }
         }
 
@@ -154,5 +165,38 @@ void MarketMakerBot::cancelOldOrders(int marketId)
         {
             engine.cancelOrder(o.order_id);
         }
+    }
+}
+
+void MarketMakerBot::inventoryControl(int marketId)
+{
+    auto posResult = db.getPositionQtyRaw(botId, marketId);
+
+    if (!posResult.isSuccess())
+        return;
+
+    long long position = posResult.value;
+
+    auto lastResult = db.getLastPriceRaw(marketId);
+    if (!lastResult.isSuccess())
+        return;
+
+    long long lastPrice = lastResult.value;
+
+    if (position > limit)
+    {
+        long long qty = position / 2;
+
+        sendLimitOrder(marketId, "sell", lastPrice, qty);
+
+        printf("[MM] inventory reduce sell %lld\n", qty);
+    }
+    else if (position < -limit)
+    {
+        long long qty = (-position) / 2;
+
+        sendLimitOrder(marketId, "buy", lastPrice, qty);
+
+        printf("[MM] inventory reduce buy %lld\n", qty);
     }
 }

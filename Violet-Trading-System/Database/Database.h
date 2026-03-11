@@ -35,15 +35,17 @@ public:
     Result<std::pair<long long,long long>> addOrder(const Order& order);
     Result<bool> recordTradeAndUpdateOrders(
         const Trade& t,
-        long long buy_id,
+        const Order& buy,
+        const Order& sell,
         long long buy_remaining,
-        const std::string& buy_status,
-        long long sell_id,
         long long sell_remaining,
+        const std::string& buy_status,
         const std::string& sell_status);
 
     Result<bool> recordTrade(const Trade& trade);
     Result<void> updateOrder(long long order_id, long long new_qty_remaining, const std::string& new_status);
+    Result<void> applyBuyPosition(int user_id, int bot_id, int market_id, long long qty, long long price);
+    Result<void> applySellPosition(int user_id, int bot_id, int market_id, long long qty);
     Result<bool> isOrderOpen(long long order_id);
 
     Result<bool> hasAnyUser();
@@ -54,12 +56,13 @@ public:
     long long loginUser(const std::string& username, const std::string& password);
     Result<std::string> getPasswordHash(const std::string& username);
     
-    long long getAvailableCash(int user_id);
-    long long getLastPriceRaw(int market_id);
-    long long getPositionQtyRaw(int user_id, int market_id);
+    Result<long long> getAvailableCash(int user_id);
+    Result<long long> getLastPriceRaw(int market_id);
+    Result<long long> getPositionQtyRaw(int user_id, int market_id);
+    Result<long long> getBotPositionQtyRaw(int bot_id, int market_id);
     long long getPositionAvePriceRaw(int user_id, int market_id);
     std::pair<long long, long long> getPrevAndCurrentPricesRaw(int market_id);
-    long long getRealizedPnLRaw(long long user_id);
+    long long getRealizedPnLRaw(int user_id);
     std::vector<OrderHistoryRow> getUserOrderHistory(int user_id);
     
     std::vector<std::pair<long long, long long>> getTopBuyOrders(int market_id, int limit = 5);
@@ -73,11 +76,17 @@ public:
     void showLeaderboard();
     
     // --- CRUD DELETE REQUIREMENT ---
-    Result<bool> deleteUserAccount(long long user_id);
+    Result<bool> deleteUserAccount(int user_id);
 
-    // --- NEW: INVENTORY MANAGEMENT DECLARATIONS ---
-    double getTrueAvailableCash(long long user_id);
-    double getAvailablePosition(long long user_id, int market_id);
+    Result<void> setAvailableCash(int user_id, long long amount);
+    Result<void> lockCash(int user_id, long long amount);
+    Result<void> releaseCash(int user_id, long long amount);
+    Result<void> addCashBalance(int user_id, long long amount);
+    Result<void> subtractCashBalance(int user_id, long long amount);
+    Result<void> lockPosition(int user_id, int bot_id, int market_id, long long qty);
+    Result<void> releasePosition(int user_id,int bot_id,int market_id,long long qty);
+
+    double getAvailablePosition(int user_id, int market_id);
 };
 
 #endif

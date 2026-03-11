@@ -10,15 +10,111 @@ Engine::Engine(Database& database) : db(database) {
     std::cout << "Matching Engine Initialized." << std::endl;
 }
 
-Result<void> Engine::placeOrder(Order new_order) {
+Result<void> Engine::placeOrder(Order new_order)
+{
     Result<void> placeOrderResult;
+
+    long long lockedCashAmount = 0;
+    bool cashLocked = false;
+    bool positionLocked = false;
+
+    bool isUser = new_order.user_id > 0;
+    bool isBot  = new_order.bot_id > 0;
+
+    // ---- MARKET ORDER ----
+    if (new_order.type == "market")
+    {
+        Result<std::pair<long long,long long>> dbResult = db.addOrder(new_order);
+
+        if (!dbResult.isSuccess())
+        {
+            placeOrderResult.setError(ErrorType::Database, dbResult.error.getMessage());
+            printf("[ENGINE] ADDORDER %s\n", placeOrderResult.error.getMessage().c_str());
+            return placeOrderResult;
+        }
+
+        new_order.order_id = dbResult.value.first;
+        new_order.created_at = dbResult.value.second;
+
+        orderMarketMap[new_order.order_id] = new_order.market_id;
+
+        matchMarketOrder(new_order);
+        return placeOrderResult;
+    }
+
+    // ---- BUY ORDER ----
+    if (new_order.side == "buy")
+    {
+        if (isUser)
+        {
+            long long notional = (new_order.price * new_order.qty) / 10000;
+
+            auto lockResult = db.lockCash(
+                new_order.user_id,
+                notional
+            );
+
+            if (!lockResult.isSuccess())
+            {
+                placeOrderResult.setError(ErrorType::Validation, lockResult.error.getMessage());
+                printf("[ENGINE] BUY %s\n", placeOrderResult.error.getMessage().c_str());
+                return placeOrderResult;
+            }
+
+            lockedCashAmount = notional;
+            cashLocked = true;
+        }
+    }
+
+    // ---- SELL ORDER ----
+    else if (new_order.side == "sell")
+    {
+        if (isUser || isBot)
+        {
+            auto lockPosResult = db.lockPosition(
+                new_order.user_id, new_order.bot_id,
+                new_order.market_id,
+                new_order.qty
+            );
+
+            if (!lockPosResult.isSuccess())
+            {
+                placeOrderResult.setError(ErrorType::Validation, lockPosResult.error.getMessage());
+                printf("[ENGINE] SELL %s\n", placeOrderResult.error.getMessage().c_str());
+                return placeOrderResult;
+            }
+
+            positionLocked = true;
+        }
+    }
+    else
+    {
+        placeOrderResult.setError(ErrorType::Validation, "invalid side");
+        printf("[ENGINE] %s\n", placeOrderResult.error.getMessage().c_str());
+        return placeOrderResult;
+    }
+
+    // ---- INSERT ORDER ----
     Result<std::pair<long long,long long>> dbResult = db.addOrder(new_order);
 
     if (!dbResult.isSuccess())
     {
-        std::cerr << "[Engine] addOrder failed: "
-                << dbResult.error.getMessage()
-                << std::endl;
+        if (cashLocked)
+        {
+            if (isUser)
+                db.releaseCash(new_order.user_id, lockedCashAmount);
+            else
+                db.releaseCash(new_order.bot_id, lockedCashAmount);
+        }
+
+        if (positionLocked)
+        {
+            if (isUser)
+                db.releasePosition(new_order.user_id, new_order.bot_id, new_order.market_id, new_order.qty);
+            else
+                db.releasePosition(new_order.user_id, new_order.bot_id, new_order.market_id, new_order.qty);
+        }
+
         placeOrderResult.setError(ErrorType::Database, dbResult.error.getMessage());
         return placeOrderResult;
     }
@@ -28,20 +124,14 @@ Result<void> Engine::placeOrder(Order new_order) {
 
     orderMarketMap[new_order.order_id] = new_order.market_id;
 
-    if (new_order.type == "market")
-    {
-        matchMarketOrder(new_order);
-        return placeOrderResult;
-    }
+    // ---- ORDERBOOK ----
+    if (new_order.side == "buy")
+        buyBooks[new_order.market_id].push(new_order);
     else
-    {
-        if (new_order.side == "buy")
-            buyBooks[new_order.market_id].push(new_order);
-        else
-            sellBooks[new_order.market_id].push(new_order);
+        sellBooks[new_order.market_id].push(new_order);
 
-        match(new_order.market_id);
-    }
+    // ---- MATCH ----
+    match(new_order.market_id);
 
     return placeOrderResult;
 }
@@ -179,6 +269,15 @@ void Engine::match(int market_id)
         Order bestBuy = buys.top();
         Order bestSell = sells.top();
 
+        bool sameOwner =
+        (bestBuy.user_id == bestSell.user_id && bestBuy.user_id != 0) ||
+        (bestBuy.bot_id == bestSell.bot_id && bestBuy.bot_id != 0);
+
+        if (sameOwner)
+        {
+            break;
+        }
+
         if (bestBuy.price < bestSell.price)
             break;
 
@@ -203,11 +302,11 @@ void Engine::match(int market_id)
 
         Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
             t,
-            bestBuy.order_id,
+            bestBuy,
+            bestSell,
             buyRemainingAfter,
-            buyStatus,
-            bestSell.order_id,
             sellRemainingAfter,
+            buyStatus,
             sellStatus
         );
 
@@ -253,7 +352,7 @@ void Engine::matchMarketOrder(Order& incoming)
             long long incomingRemainingAfter = incoming.qty_remaining - tradeQty;
             long long askRemainingAfter = bestAsk.qty_remaining - tradeQty;
 
-            std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "open";
+            std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "partial";
             std::string askStatus = (askRemainingAfter == 0) ? "filled" : "open";
 
             Trade t;
@@ -265,11 +364,11 @@ void Engine::matchMarketOrder(Order& incoming)
 
             Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
                 t,
-                incoming.order_id,
+                incoming,
+                bestAsk,
                 incomingRemainingAfter,
-                incomingStatus,
-                bestAsk.order_id,
                 askRemainingAfter,
+                incomingStatus,
                 askStatus
             );
 
@@ -310,7 +409,7 @@ void Engine::matchMarketOrder(Order& incoming)
             long long incomingRemainingAfter = incoming.qty_remaining - tradeQty;
 
             std::string bidStatus = (bidRemainingAfter == 0) ? "filled" : "open";
-            std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "open";
+            std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "partial";
 
             Trade t;
             t.market_id = market_id;
@@ -321,11 +420,11 @@ void Engine::matchMarketOrder(Order& incoming)
 
             Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
                 t,
-                bestBid.order_id,
+                bestBid,
+                incoming,
                 bidRemainingAfter,
-                bidStatus,
-                incoming.order_id,
                 incomingRemainingAfter,
+                bidStatus,
                 incomingStatus
             );
 
@@ -349,7 +448,7 @@ void Engine::matchMarketOrder(Order& incoming)
 
     if (incoming.qty_remaining > 0)
     {
-        Result<void> updateIncomingResult = db.updateOrder(incoming.order_id, incoming.qty_remaining, "cancelled");
+        Result<void> updateIncomingResult = db.updateOrder(incoming.order_id, incoming.qty_remaining, "canceled");
         if (!updateIncomingResult.isSuccess())
         {
             std::cerr << "[Engine] failed to finalize market order cancel: "

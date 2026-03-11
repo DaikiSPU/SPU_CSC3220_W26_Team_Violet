@@ -394,8 +394,6 @@ void Dashboard::orderEntryWindow()
 
     if (ImGui::BeginTable("OrderForm1", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        float price = 0.0f;
-
         ImGui::TableSetupColumn("Label", ImGuiTableColumnFlags_WidthFixed, 100.0f);
         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
         
@@ -405,11 +403,13 @@ void Dashboard::orderEntryWindow()
 
         ImGui::TableSetColumnIndex(1);
 
-        float priceRow = ImGui::GetContentRegionAvail().x;
-        ImVec2 priceTextSize = ImGui::CalcTextSize("0");
+        // float priceRow = ImGui::GetContentRegionAvail().x;
+        // ImVec2 priceTextSize = ImGui::CalcTextSize("0");
 
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (priceRow - priceTextSize.x));
-        ImGui::Text("0");
+        // ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (priceRow - priceTextSize.x));
+        // ImGui::Text("0");
+
+        ImGui::InputInt("##price", &price);
 
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
@@ -425,7 +425,7 @@ void Dashboard::orderEntryWindow()
 
     if (ImGui::BeginTable("OrderForm2", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        float estimated = 0000.00;
+        float estimated = price * qty / 10000.0;
         char estimatedText[32];
         snprintf(estimatedText, sizeof(estimatedText), "%.2f", estimated);
         ImGui::TableNextRow();
@@ -446,7 +446,7 @@ void Dashboard::orderEntryWindow()
 
     if (ImGui::BeginTable("OrderForm3", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        float availableCash = 0000.00;
+        float availableCash = backend.getAvailableCash() / 10000.0;
         char availableCashText[32];
         snprintf(availableCashText, sizeof(availableCashText), "%.2f", availableCash);
         ImGui::TableNextRow();
@@ -461,9 +461,9 @@ void Dashboard::orderEntryWindow()
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableCashRow - availableCashTextSize.x));
         ImGui::Text("%s", availableCashText);
 
-        int position = 0;
+        float position = backend.getPosition(current_market_id);
         char positionhText[32];
-        snprintf(positionhText, sizeof(positionhText), "%d", position);
+        snprintf(positionhText, sizeof(positionhText), "%f", position);
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Position");
@@ -482,10 +482,28 @@ void Dashboard::orderEntryWindow()
 
     if (ImGui::Button("Place Order", ImVec2(-1, 0))) 
     {
-        printf("order button placed\n");
+        std::string side;
+        if (orderState == OrderState::BUY)
+            side = "buy";
+        else
+            side = "sell";
+        Result<void> result = backend.placeOrder(current_market_id, side, price, qty);
+        if (!result.isSuccess() && side == "buy")
+        {
+            ImGui::OpenPopup("Place Order Error");
+        }
+        else if (!result.isSuccess() && side == "sell")
+        {
+            ImGui::OpenPopup("Place Order Error");
+        }
+
+        backend.refreshHeader(current_market_id);
     }
 
-
+    if (Popup::showMessage("Place Order Error", errorManager.getErrors(), "OK"))
+    {
+        errorManager.clear();
+    }
     ImGui::End();
 }
 

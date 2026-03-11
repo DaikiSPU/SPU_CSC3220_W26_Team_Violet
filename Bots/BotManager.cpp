@@ -75,5 +75,35 @@ Result<void> BotManager::createBots(Database& db, Engine& engine)
 
     addBot(std::move(whaleResult.value));
 
+    // FatFingerBot
+    auto fatFingerResult = FatFingerBot::create(db, engine);
+    if (!fatFingerResult.isSuccess())
+    {
+        result.setError(ErrorType::Fatal, fatFingerResult.error.getMessage());
+        return result;
+    }
+
+    addBot(std::move(fatFingerResult.value));
+
+    // SineWaveBot
+    auto sineResult = SineWaveBot::create(db, engine);
+    if (!sineResult.isSuccess())
+    {
+        result.setError(ErrorType::Fatal, sineResult.error.getMessage());
+        return result;
+    }
+
+    addBot(std::move(sineResult.value));
+
+    // GreedBot
+    auto greedResult = GreedBot::create(db, engine);
+    if (!greedResult.isSuccess())
+    {
+        result.setError(ErrorType::Fatal, greedResult.error.getMessage());
+        return result;
+    }
+
+    addBot(std::move(greedResult.value));
+
     return result;
 }

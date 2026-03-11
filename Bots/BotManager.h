@@ -6,6 +6,9 @@
 #include "NoiseBot.h"
 #include "PanicBot.h"
 #include "WhaleBot.h"
+#include "FatFingerBot.h"
+#include "GreedBot.h"
+#include "SineWaveBot.h"
 
 class BotManager {
 private:

@@ -23,8 +23,10 @@ public:
     void refreshHeader(int marketId);
     OrderBookSnapshot refreshOrderBook(int marketId) const;
     Result<bool> onConfirmDelete();
+    Result<void> placeOrder(int currentMarketId, std::string side, int price, int qty);
     const DashboardData& getData() const { return data; }
-
+    long long getAvailableCash();
+    long long getPosition(int currentMarketId);
     
 
 private:
