@@ -195,7 +195,7 @@ void Database::initTables() {
         "market_id INTEGER NOT NULL,"
 
         "qty INTEGER NOT NULL CHECK (qty >= 0),"
-        "qty_available INTEGER NOT NULL CHECK (qty_available >= 0)"
+        "qty_available INTEGER NOT NULL CHECK (qty_available >= 0),"
         "avg_price INTEGER NOT NULL CHECK (avg_price >= 0),"
 
         "CHECK ("
@@ -293,7 +293,7 @@ void Database::initTables() {
 
                  
     // --- 6. LEADERBOARD ---
-    executeQuery("CREATE TABLE IF NOT EXISTS Leaderboard ("
+    executeQuery("CREATE TABLE IF NOT EXISTS leaderboard ("
                  "username TEXT PRIMARY KEY,"
                  "peak_cash INTEGER DEFAULT 0,"
                  "rank_title TEXT,"
@@ -320,6 +320,18 @@ void Database::initTables() {
                 "('System_Noise', 'system'),"
                 "('System_MarketMaker', 'market_maker') "
                 "ON CONFLICT(bot_name) DO NOTHING;");
+
+    executeQuery("INSERT OR IGNORE INTO positions "
+                "(user_id, bot_id, market_id, qty, qty_available, avg_price) "
+                "SELECT "
+                "NULL, "
+                "bots.bot_id, "
+                "markets.market_id, "
+                "500000, "
+                "500000, "
+                "markets.reference_price "
+                "FROM bots, markets "
+                "WHERE bots.bot_name = 'System_MarketMaker';");
 
     executeQuery("CREATE INDEX IF NOT EXISTS idx_trades_market_time "
                 "ON trades(market_id, executed_at DESC);");
@@ -1428,18 +1440,18 @@ Result<long long> Database::getReferencePrice(int market_id)
 // --- NEW: LEADERBOARD LOGIC ---
 void Database::updateHighScore(const std::string& username, double cash, const std::string& rank) {
     long long cash_fixed = static_cast<long long>(cash * 10000);
-    std::string sql = "INSERT INTO Leaderboard (username, peak_cash, rank_title) "
+    std::string sql = "INSERT INTO leaderboard (username, peak_cash, rank_title) "
                       "VALUES ('" + username + "', " + std::to_string(cash_fixed) + ", '" + rank + "') "
                       "ON CONFLICT(username) DO UPDATE SET "
                       "rank_title = excluded.rank_title, "
                       "updated_at = CURRENT_TIMESTAMP, "
-                      "peak_cash = MAX(Leaderboard.peak_cash, excluded.peak_cash);";
+                      "peak_cash = MAX(leaderboard.peak_cash, excluded.peak_cash);";
     executeQuery(sql);
 }
 
 void Database::showLeaderboard() {
     sqlite3_stmt* stmt;
-    const char* sql = "SELECT username, peak_cash, rank_title FROM Leaderboard ORDER BY peak_cash DESC LIMIT 5;";
+    const char* sql = "SELECT username, peak_cash, rank_title FROM leaderboard ORDER BY peak_cash DESC LIMIT 5;";
     
     std::cout << "\n=== HALL OF FAME: TOP 5 DUELISTS ===\n";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
@@ -1497,7 +1509,7 @@ Result<bool> Database::deleteUserAccount(int userId)
         return resultDelete;
     }
 
-    Result<void> r3 = executeQuery("DELETE FROM Leaderboard WHERE username = '" + username + "';");
+    Result<void> r3 = executeQuery("DELETE FROM leaderboard WHERE username = '" + username + "';");
     if (!r3.isSuccess())
     {
         rollback();
@@ -1741,8 +1753,16 @@ Result<void> Database::lockPosition(
     sqlite3_bind_int64(stmt,1,qty);
     sqlite3_bind_int(stmt,2,market_id);
     sqlite3_bind_int64(stmt,3,qty);
-    sqlite3_bind_int64(stmt,4,user_id);
-    sqlite3_bind_int64(stmt,5,bot_id);
+    if (user_id > 0)
+        sqlite3_bind_int64(stmt, 4, user_id);
+    else
+        sqlite3_bind_null(stmt, 4);
+
+    // bot_id
+    if (bot_id > 0)
+        sqlite3_bind_int64(stmt, 5, bot_id);
+    else
+        sqlite3_bind_null(stmt, 5);
 
     int rc = sqlite3_step(stmt);
 

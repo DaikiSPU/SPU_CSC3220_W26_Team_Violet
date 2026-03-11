@@ -272,11 +272,12 @@ void Dashboard::orderBookWindow()
     // Begin OrderBook window
     ImGui::Begin("OrderBook");
 
+    float halfHeight = ImGui::GetContentRegionAvail().y * 0.5f;
     // Section title
     ImGui::Text("Sell");
 
     // Begin sell table
-    if (ImGui::BeginTable("##OrderBookAsks", 2, tableFlags, ImVec2(0, 0)))
+    if (ImGui::BeginTable("##OrderBookAsks", 2, tableFlags, ImVec2(0, halfHeight)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Price", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -288,10 +289,12 @@ void Dashboard::orderBookWindow()
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("%lld", level.price);
+            double price = level.price / 10000.0;
+            ImGui::Text("%.2f", price);
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%lld", level.size);
+            double size = level.size / 10000.0;
+            ImGui::Text("%.4f", size);
         }
 
         ImGui::EndTable();
@@ -303,7 +306,7 @@ void Dashboard::orderBookWindow()
     ImGui::Text("Buy");
 
     // Begin buy table
-    if (ImGui::BeginTable("##OrderBookBids", 2, tableFlags, ImVec2(0, 0)))
+    if (ImGui::BeginTable("##OrderBookBids", 2, tableFlags, ImVec2(0, halfHeight)))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Price", ImGuiTableColumnFlags_WidthStretch, 1.0f);
@@ -315,10 +318,12 @@ void Dashboard::orderBookWindow()
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("%lld", level.price);
+            double price = level.price / 10000.0;
+            ImGui::Text("%.2f", price);
 
             ImGui::TableSetColumnIndex(1);
-            ImGui::Text("%lld", level.size);
+            double size = level.size / 10000.0;
+            ImGui::Text("%.4f", size);
         }
 
         ImGui::EndTable();
@@ -425,7 +430,7 @@ void Dashboard::orderEntryWindow()
 
     if (ImGui::BeginTable("OrderForm2", 2, ImGuiTableFlags_SizingStretchProp))
     {
-        float estimated = price * qty / 10000.0;
+        float estimated = price * qty;
         char estimatedText[32];
         snprintf(estimatedText, sizeof(estimatedText), "%.2f", estimated);
         ImGui::TableNextRow();
@@ -461,7 +466,7 @@ void Dashboard::orderEntryWindow()
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableCashRow - availableCashTextSize.x));
         ImGui::Text("%s", availableCashText);
 
-        float position = backend.getPosition(current_market_id);
+        float position = backend.getPosition(current_market_id) / 10000;
         char positionhText[32];
         snprintf(positionhText, sizeof(positionhText), "%f", position);
         ImGui::TableNextRow();

@@ -37,18 +37,18 @@ void MarketMakerBot::run(int tick)
             long long buyPrice  = mid - i*m.tickSize;
             long long sellPrice = mid + i*m.tickSize;
 
-            if (countMyOrdersAtPrice(m.marketId,"sell",sellPrice) < sameOrder)
+            if (countMyOrdersAtPrice(m.marketId,"buy",buyPrice) < sameOrder)
             {
-                result = sendLimitOrder(m.marketId,"sell", sellPrice, qty);
+                result = sendLimitOrder(m.marketId,"buy", buyPrice, qty);
                 if (!result.isSuccess())
                 {
                     printf("%s\n", result.error.getMessage().c_str());
                 }
             }
 
-            if (countMyOrdersAtPrice(m.marketId,"buy",buyPrice) < sameOrder)
+            if (countMyOrdersAtPrice(m.marketId,"sell",sellPrice) < sameOrder)
             {
-                result = sendLimitOrder(m.marketId,"buy", buyPrice, qty);
+                result = sendLimitOrder(m.marketId,"sell", sellPrice, qty);
                 if (!result.isSuccess())
                 {
                     printf("%s\n", result.error.getMessage().c_str());
