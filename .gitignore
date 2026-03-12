@@ -1,1 +1,8 @@
 .DS_Store
+/build/
+/imgui.ini
+/.vscode
+/CSC3220.code-workspace
+TODO
+
+*.db

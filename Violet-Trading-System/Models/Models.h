@@ -47,7 +47,7 @@ struct Market {
 
 // Bot Identity
 struct Bot {
-    long long bot_id;            
+    int bot_id;            
     std::string bot_name;
     std::string bot_type;        
 };
@@ -55,27 +55,47 @@ struct Bot {
 // Order Book Entry
 struct Order {
     long long order_id;          
-    long long user_id;           
-    long long bot_id;            
+    int user_id;           
+    int bot_id;            
     long long market_id;         
     std::string side;            
     std::string type;            
     long long price;             // Stored as fixed-point cents
     long long qty;               
     long long qty_remaining;     
-    std::string status;          
+    std::string status;
+    long long created_at;        
 };
 
 // Matched Execution
 struct Trade {
-    long long trade_id;          
-    long long market_id;         
-    long long buy_order_id;      
-    long long sell_order_id;     
-    long long price;             
-    long long qty;               
-    std::string executed_at;     
+    long long trade_id;
+    long long market_id;
+
+    long long buy_order_id;
+    long long sell_order_id;
+
+    long long buy_user_id;
+    long long sell_user_id;
+
+    long long buy_bot_id;
+    long long sell_bot_id;
+
+
+    long long price;
+    long long qty;
+
+    std::string buyStatus;
+    std::string sellStatus;
+
+    std::string trade_time;
+
+    std::string aggressor_side;
 };
+
+
+
+
 
 // Audit Trail
 struct Transaction {
@@ -90,13 +110,17 @@ struct Transaction {
 
 // --- API STRUCTURES FOR UI ---
 struct OrderHistoryRow {
+    long long order_id;
+
     std::string time;
-    std::string market_symbol; 
-    std::string side;          
-    double price;
-    double quantity;
-    double total;
-    std::string status;        
+    std::string marketSymbol;
+    std::string side;
+
+    long long price;
+    long long qty;
+    long long qty_remaining;
+
+    std::string status;   
 };
 
 #endif // MODELS_H
