@@ -57,7 +57,6 @@ void MarketMakerBot::run(int tick)
                 }
                 if (positionResult.value < qty)
                 {
-                    printf("continue\n");
                     continue;
                 }
                 result = sendLimitOrder(m.marketId,"sell", sellPrice, qty);

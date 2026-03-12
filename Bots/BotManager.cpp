@@ -20,13 +20,13 @@ void BotManager::runAll(int tick)
 
         if (rand() % 100 < bot->getBotActivityRate())
         {
-            printf("===== BOTID: %d =====\n", bot->getBotId());
+            // printf("===== BOTID: %d =====\n", bot->getBotId());
             bot->run(tick);
 
             int delay = rand() % 5 + 1;
             bot->setNextAcitonTick(tick + delay);
 
-            printf("=======================\n");
+            // printf("=======================\n");
         }
     }
 }

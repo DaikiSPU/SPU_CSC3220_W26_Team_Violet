@@ -147,7 +147,7 @@ OrderBookSnapshot Engine::getOrderBook(int market_id)
         Order o = buyCopy.top();
         buyCopy.pop();
 
-        snapshot.bids.push_back({o.price, o.qty_remaining});
+        snapshot.bids.push_back({o.user_id, o.bot_id, o.price, o.qty_remaining});
     }
 
     // SELL side
@@ -156,7 +156,7 @@ OrderBookSnapshot Engine::getOrderBook(int market_id)
         Order o = sellCopy.top();
         sellCopy.pop();
 
-        snapshot.asks.push_back({o.price, o.qty_remaining});
+        snapshot.asks.push_back({o.user_id, o.bot_id, o.price, o.qty_remaining});
     }
 
     return snapshot;
@@ -294,11 +294,13 @@ void Engine::setTrade(Trade& t)
 
 void Engine::setOrderHistory(Order new_order)
 {
-    orderHistory.push_back(new_order);
-
-    if (orderHistory.size() > MAX_ORDER_HISTORY)
+    if (new_order.user_id > 0)
     {
-        orderHistory.erase(orderHistory.begin());
+        orderHistory.push_back(new_order);
+        if (orderHistory.size() > MAX_ORDER_HISTORY)
+        {
+            orderHistory.erase(orderHistory.begin());
+        }
     }
 }
 
@@ -402,6 +404,12 @@ void Engine::match(int market_id, const std::string& aggressorSide)
         setTrade(t);
         setOrderHistory(bestBuy);
         setOrderHistory(bestSell);
+
+        if (bestSell.user_id > 0 || bestBuy.user_id > 0)
+        {
+            printf("MATCH!!!!!!!!\n");
+            matchSuccess = true;
+        }
     }
 }
 
@@ -586,13 +594,24 @@ void Engine::matchMarketOrder(Order& incoming)
 
 std::vector<Order> Engine::getBuyOrders(int market_id)
 {
+    cleanTopBuyBook(market_id);
+
     std::vector<Order> orders;
     auto copy = buyBooks[market_id];
 
     while (!copy.empty())
     {
-        orders.push_back(copy.top());
+        Order o = copy.top();
         copy.pop();
+
+        auto openResult = db.isOrderOpen(o.order_id);
+        if (!openResult.isSuccess() || !openResult.value)
+            continue;
+
+        if (o.qty_remaining <= 0)
+            continue;
+
+        orders.push_back(o);
     }
 
     return orders;
@@ -600,13 +619,24 @@ std::vector<Order> Engine::getBuyOrders(int market_id)
 
 std::vector<Order> Engine::getSellOrders(int market_id)
 {
+    cleanTopSellBook(market_id);
+
     std::vector<Order> orders;
     auto copy = sellBooks[market_id];
 
     while (!copy.empty())
     {
-        orders.push_back(copy.top());
+        Order o = copy.top();
         copy.pop();
+
+        auto openResult = db.isOrderOpen(o.order_id);
+        if (!openResult.isSuccess() || !openResult.value)
+            continue;
+
+        if (o.qty_remaining <= 0)
+            continue;
+
+        orders.push_back(o);
     }
 
     return orders;

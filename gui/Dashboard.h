@@ -4,6 +4,7 @@
 #include "States.h"
 #include "DashboardBackend.h"
 #include <string>
+#include <algorithm>
 
 class Database;
 
@@ -25,6 +26,8 @@ class Dashboard : public Page {
 
         void orderHistoryWindow();
         void openOrdersWindow();
+
+        bool orderConfirmPopup();
 
         // min width cannot support in docker
         // const ImVec2 headerMinSize = ImVec2(200.0f, 100.0f);
@@ -74,4 +77,17 @@ class Dashboard : public Page {
         int selectedMarketId;
         double qty = 0.0;
         double price = 0.0;
+
+        bool showConfirmOrderPopup = false;
+        std::string pendingSide;
+        double pendingPrice = 0;
+        double pendingQty = 0;
+
+        const int maxCandles = 60;
+
+        int chartScrollX;
+        float chartScrollY;
+        int visibleCandles = 80;
+
+        bool openPlaceOrderErrorPopup = false;
 };

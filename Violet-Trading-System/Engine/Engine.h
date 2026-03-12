@@ -18,6 +18,8 @@
 
 struct BookContent
 {
+    int user_id;
+    int bot_id;
     long long price;
     long long size;
 };
@@ -70,7 +72,7 @@ private:
     const int MAX_ORDER_HISTORY = 200;
     const int MAX_TRADE_HISTORY = 200;
 
-
+    bool matchSuccess = false;
 
 
 public:
@@ -90,6 +92,9 @@ public:
     std::vector<Trade> getTradeHistory() { return tradeHistory; };
 
     std::vector<Order> getOrderHistory() { return orderHistory; }
+
+    bool getMatchSuccess() { return matchSuccess; }
+    void setMatchSuccess() { matchSuccess = false; }
 };
 
 #endif

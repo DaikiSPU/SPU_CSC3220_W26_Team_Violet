@@ -22,7 +22,7 @@ void DashboardBackend::refreshHeader(int currentMarketId)
 {
     int userId = appData.userId;
     data.markets = db.getAvailableMarkets();
-    // Last Price
+
     auto lastResult = db.getLastPriceRaw(currentMarketId);
     if (!lastResult.isSuccess())
     {
@@ -32,22 +32,18 @@ void DashboardBackend::refreshHeader(int currentMarketId)
 
     data.rawLastPrice = lastResult.value;
 
-    // Fluctuation
-    auto prices =
-        db.getPrevAndCurrentPricesRaw(currentMarketId);
+    auto prices = db.getPrevAndCurrentPricesRaw(currentMarketId);
 
     if (prices.second != 0)
     {
         data.fluctuation =
-            ((prices.first - prices.second)
-             / (double)prices.second) * 100.0;
+            ((prices.first - prices.second) / (double)prices.second) * 100.0;
     }
     else
     {
         data.fluctuation = 0.0;
     }
 
-    // Cash
     Result<long long> cashResult = db.getAvailableCash(userId);
     if (!cashResult.isSuccess())
     {
@@ -56,17 +52,17 @@ void DashboardBackend::refreshHeader(int currentMarketId)
     }
     data.rawAvailableCash = cashResult.value;
 
-    // Position
     Result<long long> qtyResult = db.getPositionQtyRaw(userId, 0, currentMarketId);
     if (!qtyResult.isSuccess())
     {
         printf("refresh header error\n");
         return;
     }
-    long long qty = qtyResult.value;
 
-    long long avg =
-        db.getPositionAvePriceRaw(userId, currentMarketId);
+    data.rawPosition = qtyResult.value;
+    long long qty = data.rawPosition;
+
+    long long avg = db.getPositionAvePriceRaw(userId, currentMarketId);
 
     if (qty != 0)
     {
@@ -82,11 +78,9 @@ void DashboardBackend::refreshHeader(int currentMarketId)
         data.rawUnrealized = 0;
     }
 
-    // Equity
     data.rawEquity =
         data.rawAvailableCash + data.rawMarketValue;
 
-    // Realized
     data.rawRealized =
         db.getRealizedPnLRaw(userId);
 
@@ -108,31 +102,44 @@ Result<bool> DashboardBackend::onConfirmDelete()
 Result<void> DashboardBackend::placeOrder(int currentMarketId, std::string side, int price, int qty)
 {
     Result<void> placeOrderResult;
-    if (getAvailableCash() < (price * qty) / 10000)
+    if (side == "buy" && getAvailableCash() < (price * qty) / 10000)
     {
         placeOrderResult.setError(ErrorType::System, "available cash is lower than estimated price.");
         return placeOrderResult;
     }
 
-    Order order;
+    if (side != "buy" && side != "sell")
+    {
+        placeOrderResult.setError(ErrorType::Validation, "invalid side");
+        return placeOrderResult;
+    }
 
+    Order order{};
+
+    // owner
     order.user_id = appData.userId;
     order.bot_id = 0;
 
+    // market
     order.market_id = currentMarketId;
 
+    // order info
     order.side = side;
     order.type = "limit";
 
+    // quantities
     order.price = price;
     order.qty = qty;
     order.qty_remaining = qty;
+
+    // status
+    order.status = "open";
 
     Result<void> result = engine.placeOrder(order);
     if (!result.isSuccess())
     {
         placeOrderResult.setError(ErrorType::System, result.error.getMessage());
-        printf("%s\n", result.error.getMessage().c_str());
+        printf("Place Order: %s\n", result.error.getMessage().c_str());
         return placeOrderResult;
     }
     return placeOrderResult;
@@ -143,9 +150,9 @@ long long DashboardBackend::getAvailableCash()
     return data.rawAvailableCash;
 }
 
-long long DashboardBackend::getPosition(int currentMarketId)
+long long DashboardBackend::getPosition()
 {
-    return db.getPositionQtyRaw(appData.userId, 0, currentMarketId).value; 
+    return data.rawPosition;
 }
 
 Result<std::vector<TradeHistoryRow>> DashboardBackend::getTradeHistory()
@@ -180,8 +187,41 @@ Result<std::vector<TradeHistoryRow>> DashboardBackend::getTradeHistory()
     return result;
 }
 
+Result<std::vector<TradeHistoryRow>> DashboardBackend::getTradeHistory(int currentMarketId)
+{
+    auto trades = engine.getTradeHistory();
 
+    std::vector<TradeHistoryRow> rows;
 
+    for (auto& t : trades)
+    {
+        if (t.market_id != currentMarketId)
+        {
+            continue;
+        }
+        TradeHistoryRow r;
+
+        r.market = getMarketSymbol(t.market_id);
+        r.price = t.price;
+        r.qty = t.qty;
+        r.time = t.trade_time;
+
+        // side (aggressor)
+        r.side = t.aggressor_side;
+
+        // status
+        if (t.aggressor_side == "buy")
+            r.status = t.buyStatus;
+        else
+            r.status = t.sellStatus;
+
+        rows.push_back(r);
+    }
+
+    Result<std::vector<TradeHistoryRow>> result;
+    result.value = rows;
+    return result;
+}
 
 Result<std::vector<OrderHistoryRow>> DashboardBackend::getOrderHistory()
 {
@@ -191,13 +231,12 @@ Result<std::vector<OrderHistoryRow>> DashboardBackend::getOrderHistory()
 
     for (auto& o : orders)
     {
-        if (o.user_id != appData.userId)
-            continue;
-
         OrderHistoryRow r;
 
         r.order_id = o.order_id;
-        r.time = o.created_at;
+        time_t t = o.created_at;
+        r.time = std::string(ctime(&t));
+        r.time.pop_back();
         r.price = o.price;
         r.qty = o.qty;
         r.qty_remaining = o.qty_remaining;
@@ -205,13 +244,12 @@ Result<std::vector<OrderHistoryRow>> DashboardBackend::getOrderHistory()
 
         r.side = o.side;
 
-        r.time = o.created_at;
 
         for (auto& m : markets)
         {
             if (m.marketId == o.market_id)
             {
-                r.marketSymbol = m.marketName;
+                r.marketSymbol = m.marketSymbol;
                 break;
             }
         }
@@ -242,8 +280,13 @@ Result<std::vector<OpenOrdersRow>> DashboardBackend::getOpenOrders()
             OpenOrdersRow r;
 
             r.order_id = o.order_id;
-            r.time = o.created_at;
-            r.market = m.marketName;
+
+            time_t t = o.created_at;
+            r.time = std::string(ctime(&t));
+            if (!r.time.empty())
+                r.time.pop_back();
+
+            r.market = m.marketSymbol;
             r.side = "buy";
             r.price = o.price;
             r.qty_remaining = o.qty_remaining;
@@ -257,11 +300,20 @@ Result<std::vector<OpenOrdersRow>> DashboardBackend::getOpenOrders()
             if (o.user_id != appData.userId)
                 continue;
 
+            Result<bool> openResult = db.isOrderOpen(o.order_id);
+            if (!openResult.isSuccess() || !openResult.value)
+                continue;
+
             OpenOrdersRow r;
 
             r.order_id = o.order_id;
-            r.time = o.created_at;
-            r.market = m.marketName;
+
+            time_t t = o.created_at;
+            r.time = std::string(ctime(&t));
+            if (!r.time.empty())
+                r.time.pop_back();
+
+            r.market = m.marketSymbol;
             r.side = "sell";
             r.price = o.price;
             r.qty_remaining = o.qty_remaining;
@@ -310,4 +362,42 @@ std::string DashboardBackend::getMarketSymbol(int marketId)
     }
 
     return "Unknown";
+}
+
+bool DashboardBackend::isSuspiciousOrder(double price, double qty)
+{
+    long long last = data.rawLastPrice;
+
+    double diff = std::fabs(price - last) / last;
+
+    if (diff > 0.10)   // 10% deviation
+        return true;
+
+    long long estimated = price * qty;
+    long long cash = getAvailableCash();
+
+    if (estimated > cash * 0.8)
+        return true;
+
+    return false;
+}
+
+bool DashboardBackend::isMyOrder(int orderUserId)
+{
+    if (orderUserId == appData.userId)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool DashboardBackend::seeMatch()
+{
+    bool sucess = engine.getMatchSuccess();
+    if (sucess)
+    {
+        engine.setMatchSuccess();
+        return true;
+    }
+    return false;
 }

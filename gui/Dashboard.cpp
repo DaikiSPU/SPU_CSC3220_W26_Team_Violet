@@ -6,11 +6,21 @@
 Dashboard::Dashboard(UIContext &uiContext, BackendContext &backendContext) : Page(uiContext, backendContext), backend(backendContext)
 {
     backend.refreshHeader(current_market_id);
-    if (!data.markets.empty())
+
+    const auto& markets = data.markets;
+
+    if (!markets.empty())
     {
         selectedMarketId = 0;
-        current_market_id = data.markets[0].first;
+        current_market_id = markets[0].first;
+        backend.refreshHeader(current_market_id);
     }
+    else
+    {
+        selectedMarketId = -1;
+        current_market_id = 0;
+    }
+    
 }
 
 /*
@@ -121,6 +131,11 @@ PageType Dashboard::draw()
 
     orderHistoryWindow();
 
+    if (backend.seeMatch())
+    {
+        backend.refreshHeader(current_market_id);
+    }
+
     if (Popup::showMessage("Fatal Error", errorManager.getErrors(), "CLOSE WINDOW"))
     {
         printf("close app dashboard\n");
@@ -170,18 +185,24 @@ PageType Dashboard::header(ImGuiViewport* viewport)
         ImGui::Text("Market");
         ImGui::SameLine();
 
-        if (ImGui::BeginCombo("##Market", data.markets[selectedMarketId].second.c_str()))
+        const auto& markets = data.markets;
+
+        const char* currentMarketLabel = "No Market";
+        if (!markets.empty() && selectedMarketId >= 0 && selectedMarketId < (int)markets.size())
         {
-            for (int i = 0; i < data.markets.size(); i++)
+            currentMarketLabel = markets[selectedMarketId].second.c_str();
+        }
+
+        if (ImGui::BeginCombo("##Market", currentMarketLabel))
+        {
+            for (int i = 0; i < (int)markets.size(); i++)
             {
                 bool isSelected = (selectedMarketId == i);
 
-                if (ImGui::Selectable(data.markets[i].second.c_str(), isSelected))
+                if (ImGui::Selectable(markets[i].second.c_str(), isSelected))
                 {
                     selectedMarketId = i;
-                    current_market_id = data.markets[i].first;
-                    
-                    // You can create a previous market ID variable to avoid checking the same market ID repeatedly.
+                    current_market_id = markets[i].first;
                     backend.refreshHeader(current_market_id);
                 }
 
@@ -298,13 +319,26 @@ void Dashboard::orderBookWindow()
         {
             ImGui::TableNextRow();
 
-            ImGui::TableSetColumnIndex(0);
-            double price = level.price / 10000.0;
-            ImGui::Text("%.2f", price);
+            if (backend.isMyOrder(level.user_id))
+            {
+                ImGui::TableSetColumnIndex(0);
+                double price = level.price / 10000.0;
+                ImGui::TextColored(ImVec4(1.0f,0.8f,0.2f,1.0f), "%.2f", price);
 
-            ImGui::TableSetColumnIndex(1);
-            double size = level.size / 10000.0;
-            ImGui::Text("%.2f", size);
+                ImGui::TableSetColumnIndex(1);
+                double size = level.size / 10000.0;
+                ImGui::TextColored(ImVec4(1.0f,0.8f,0.2f,1.0f), "%.2f", size);
+            }
+            else
+            {
+                ImGui::TableSetColumnIndex(0);
+                double price = level.price / 10000.0;
+                ImGui::Text("%.2f", price);
+
+                ImGui::TableSetColumnIndex(1);
+                double size = level.size / 10000.0;
+                ImGui::Text("%.2f", size);
+            }
         }
 
         ImGui::EndTable();
@@ -344,13 +378,334 @@ void Dashboard::orderBookWindow()
 
 void Dashboard::chartWindow()
 {
-    /* ================= CHART WINDOW ================= */
-    // Begin chart window
     ImGui::Begin("Chart");
 
-    // Placeholder chart text
-    ImGui::Text("Chart");
+    auto result = backend.getTradeHistory(current_market_id);
 
+    if (!result.isSuccess())
+    {
+        ImGui::Text("Failed to load chart data");
+        ImGui::End();
+        return;
+    }
+
+    const auto& trades = result.value;
+
+    if (trades.empty())
+    {
+        ImGui::Text("No market data");
+        ImGui::End();
+        return;
+    }
+
+    struct Candle
+    {
+        float open = 0.0f;
+        float high = 0.0f;
+        float low = 0.0f;
+        float close = 0.0f;
+        std::string timeLabel;
+    };
+
+    std::vector<Candle> candles;
+
+    const int tradesPerCandle = 5;
+    const int tradeCount = (int)trades.size();
+
+    for (int i = 0; i < tradeCount; i += tradesPerCandle)
+    {
+        int end = std::min(i + tradesPerCandle, tradeCount);
+        if (end <= i)
+            break;
+
+        Candle c{};
+
+        c.open = (float)(trades[i].price / 10000.0);
+        c.close = (float)(trades[end - 1].price / 10000.0);
+        c.high = c.open;
+        c.low = c.open;
+
+        if (!trades[i].time.empty())
+        {
+            if (trades[i].time.size() >= 8)
+            {
+                if (trades[i].time.size() >= 19)
+                    c.timeLabel = trades[i].time.substr(11, 8);
+                else
+                    c.timeLabel = trades[i].time.substr(0, std::min((size_t)8, trades[i].time.size()));
+            }
+            else
+            {
+                c.timeLabel = trades[i].time;
+            }
+        }
+        else
+        {
+            c.timeLabel = "-";
+        }
+
+        for (int j = i; j < end; ++j)
+        {
+            float p = (float)(trades[j].price / 10000.0);
+            c.high = std::max(c.high, p);
+            c.low = std::min(c.low, p);
+        }
+
+        candles.push_back(c);
+    }
+
+    if (candles.empty())
+    {
+        ImGui::Text("No candle data");
+        ImGui::End();
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup);
+
+    if (hovered)
+    {
+        if (io.KeyCtrl)
+        {
+            if (io.MouseWheel > 0.0f)
+                visibleCandles = std::max(10, visibleCandles - 2);
+            else if (io.MouseWheel < 0.0f)
+                visibleCandles = std::min((int)candles.size(), visibleCandles + 2);
+        }
+        else if (io.KeyShift)
+        {
+            chartScrollX -= (int)(io.MouseWheel * 3.0f);
+        }
+        else
+        {
+            chartScrollY += io.MouseWheel;
+        }
+    }
+
+    const int totalCandles = (int)candles.size();
+
+    if (visibleCandles < 1)
+        visibleCandles = 1;
+
+    if (visibleCandles > totalCandles)
+        visibleCandles = totalCandles;
+
+    int maxScrollX = std::max(0, totalCandles - visibleCandles);
+
+    if (chartScrollX < 0)
+        chartScrollX = 0;
+
+    if (chartScrollX > maxScrollX)
+        chartScrollX = maxScrollX;
+
+    int startIndex = chartScrollX;
+    int endIndex = std::min(startIndex + visibleCandles, totalCandles);
+
+    if (startIndex >= endIndex)
+    {
+        ImGui::Text("Invalid chart range");
+        ImGui::End();
+        return;
+    }
+
+    ImVec2 canvasPos = ImGui::GetCursorScreenPos();
+    ImVec2 canvasSize = ImGui::GetContentRegionAvail();
+
+    if (canvasSize.x < 50.0f) canvasSize.x = 50.0f;
+    if (canvasSize.y < 50.0f) canvasSize.y = 50.0f;
+
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+    drawList->AddRectFilled(
+        canvasPos,
+        ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+        IM_COL32(20, 20, 24, 255)
+    );
+
+    drawList->AddRect(
+        canvasPos,
+        ImVec2(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y),
+        IM_COL32(40, 150, 255, 255),
+        0.0f,
+        0,
+        2.0f
+    );
+
+    const float leftAxisWidth = 70.0f;
+    const float bottomAxisHeight = 28.0f;
+    const float topPadding = 10.0f;
+    const float rightPadding = 10.0f;
+
+    float plotX0 = canvasPos.x + leftAxisWidth;
+    float plotY0 = canvasPos.y + topPadding;
+    float plotX1 = canvasPos.x + canvasSize.x - rightPadding;
+    float plotY1 = canvasPos.y + canvasSize.y - bottomAxisHeight;
+
+    float plotWidth = plotX1 - plotX0;
+    float plotHeight = plotY1 - plotY0;
+
+    if (plotWidth <= 1.0f || plotHeight <= 1.0f)
+    {
+        ImGui::Dummy(canvasSize);
+        ImGui::End();
+        return;
+    }
+
+    float minPrice = candles[startIndex].low;
+    float maxPrice = candles[startIndex].high;
+
+    for (int i = startIndex; i < endIndex; ++i)
+    {
+        minPrice = std::min(minPrice, candles[i].low);
+        maxPrice = std::max(maxPrice, candles[i].high);
+    }
+
+    float range = maxPrice - minPrice;
+    if (range <= 0.000001f)
+        range = 1.0f;
+
+    float verticalShift = chartScrollY * range * 0.1f;
+    minPrice += verticalShift;
+    maxPrice += verticalShift;
+
+    float shiftedRange = maxPrice - minPrice;
+    if (shiftedRange <= 0.000001f)
+        shiftedRange = 1.0f;
+
+    auto priceToY = [&](float price) -> float
+    {
+        float normalized = (price - minPrice) / shiftedRange;
+        if (normalized < 0.0f) normalized = 0.0f;
+        if (normalized > 1.0f) normalized = 1.0f;
+        return plotY1 - normalized * plotHeight;
+    };
+
+    const int priceTicks = 5;
+
+    for (int i = 0; i <= priceTicks; ++i)
+    {
+        float t = (float)i / (float)priceTicks;
+        float y = plotY1 - t * plotHeight;
+        float price = minPrice + t * shiftedRange;
+
+        drawList->AddLine(
+            ImVec2(plotX0, y),
+            ImVec2(plotX1, y),
+            IM_COL32(60, 60, 70, 180),
+            1.0f
+        );
+
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.2f", price);
+
+        drawList->AddText(
+            ImVec2(canvasPos.x + 6.0f, y - 7.0f),
+            IM_COL32(200, 200, 210, 255),
+            buf
+        );
+    }
+
+    drawList->AddLine(
+        ImVec2(plotX0, plotY0),
+        ImVec2(plotX0, plotY1),
+        IM_COL32(180, 180, 190, 255),
+        1.0f
+    );
+
+    drawList->AddLine(
+        ImVec2(plotX0, plotY1),
+        ImVec2(plotX1, plotY1),
+        IM_COL32(180, 180, 190, 255),
+        1.0f
+    );
+
+    int visibleCount = endIndex - startIndex;
+    float candleWidth = plotWidth / (float)visibleCount;
+    if (candleWidth < 1.0f)
+        candleWidth = 1.0f;
+
+    float bodyHalfWidth = std::max(1.0f, candleWidth * 0.30f);
+
+    for (int i = 0; i < visibleCount; ++i)
+    {
+        int idx = startIndex + i;
+        const Candle& c = candles[idx];
+
+        float x = plotX0 + i * candleWidth + candleWidth * 0.5f;
+
+        float yOpen = priceToY(c.open);
+        float yClose = priceToY(c.close);
+        float yHigh = priceToY(c.high);
+        float yLow = priceToY(c.low);
+
+        bool up = c.close >= c.open;
+
+        ImU32 color = up
+            ? IM_COL32(46, 204, 113, 255)
+            : IM_COL32(231, 76, 60, 255);
+
+        float wickTop = std::min(yHigh, yLow);
+        float wickBottom = std::max(yHigh, yLow);
+
+        if (wickBottom - wickTop < 1.0f)
+            wickBottom = wickTop + 1.0f;
+
+        drawList->AddLine(
+            ImVec2(x, wickTop),
+            ImVec2(x, wickBottom),
+            color,
+            1.0f
+        );
+
+        float bodyTop = std::min(yOpen, yClose);
+        float bodyBottom = std::max(yOpen, yClose);
+
+        if (bodyBottom - bodyTop < 2.0f)
+            bodyBottom = bodyTop + 2.0f;
+
+        drawList->AddRectFilled(
+            ImVec2(x - bodyHalfWidth, bodyTop),
+            ImVec2(x + bodyHalfWidth, bodyBottom),
+            color
+        );
+    }
+
+    int labelStep = std::max(1, visibleCount / 6);
+
+    for (int i = 0; i < visibleCount; i += labelStep)
+    {
+        int idx = startIndex + i;
+        const Candle& c = candles[idx];
+
+        float x = plotX0 + i * candleWidth + candleWidth * 0.5f;
+
+        drawList->AddLine(
+            ImVec2(x, plotY1),
+            ImVec2(x, plotY1 + 4.0f),
+            IM_COL32(180, 180, 190, 255),
+            1.0f
+        );
+
+        const char* label = c.timeLabel.empty() ? "-" : c.timeLabel.c_str();
+
+        drawList->AddText(
+            ImVec2(x - 20.0f, plotY1 + 6.0f),
+            IM_COL32(200, 200, 210, 255),
+            label
+        );
+    }
+
+    char zoomBuf[64];
+    snprintf(zoomBuf, sizeof(zoomBuf), "Candles: %d  ScrollX: %d", visibleCandles, chartScrollX);
+    drawList->AddText(
+        ImVec2(plotX0 + 8.0f, plotY0 + 4.0f),
+        IM_COL32(220, 220, 220, 255),
+        zoomBuf
+    );
+
+    ImGui::Dummy(canvasSize);
     ImGui::End();
 }
 
@@ -469,7 +824,7 @@ void Dashboard::orderEntryWindow()
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableCashRow - availableCashTextSize.x));
         ImGui::Text("%s", availableCashText);
 
-        float position = backend.getPosition(current_market_id) / 10000.0;
+        float position = backend.getPosition() / 10000.0;
         char positionhText[32];
         snprintf(positionhText, sizeof(positionhText), "%.2f", position);
         ImGui::TableNextRow();
@@ -490,30 +845,54 @@ void Dashboard::orderEntryWindow()
 
     bool validOrder = price > 0 && qty > 0 && orderState != OrderState::None;
     ImGui::BeginDisabled(!validOrder);
-    if (ImGui::Button("Place Order", ImVec2(-1, 0))) 
+    if (ImGui::Button("Place Order", ImVec2(-1, 0)))
     {
-        std::string side;
-        if (orderState == OrderState::BUY)
-            side = "buy";
-        else
-            side = "sell";
-        Result<void> result = backend.placeOrder(current_market_id, side, price * 10000, qty * 10000);
-        if (!result.isSuccess())
+        std::string side = (orderState == OrderState::BUY) ? "buy" : "sell";
+
+        if (backend.isSuspiciousOrder(price, qty))
         {
-            errorManager.addError(result.error);
-            ImGui::OpenPopup("Place Order Error");
+            pendingSide = side;
+            pendingPrice = price;
+            pendingQty = qty;
+
+            ImGui::OpenPopup("Confirm Suspicious Order");
         }
         else
         {
-            backend.refreshHeader(current_market_id);
-            orderState = OrderState::None;
+            Result<void> result =
+                backend.placeOrder(current_market_id, side, price * 10000, qty * 10000);
+
+            if (!result.isSuccess())
+            {
+                printf("PlaceOrderError\n");
+                errorManager.addError(result.error);
+            }
+            else
+            {
+                backend.refreshHeader(current_market_id);
+                orderState = OrderState::None;
+            }
         }
+        printf("cash after order: %lld\n", backend.getAvailableCash());
     }
     ImGui::EndDisabled();
+
+    if (openPlaceOrderErrorPopup)
+    {
+        ImGui::OpenPopup("Place Order Error");
+        openPlaceOrderErrorPopup = false;
+    }
 
     if (Popup::showMessage("Place Order Error", errorManager.getErrors(), "OK"))
     {
         errorManager.clear();
+    }
+    if (orderConfirmPopup())
+    {
+        showConfirmOrderPopup = false;
+        pendingSide = "";
+        pendingPrice = 0;
+        pendingQty = 0;
     }
     ImGui::End();
 }
@@ -555,9 +934,9 @@ void Dashboard::transactionWindow()
 
         int maxRows = std::min((int)trades.size(), 100);
 
-        for (int i = 0; i < maxRows; ++i)
+        for (int i = trades.size() - 1; i >= 0 && maxRows > 0; --i, --maxRows)
         {
-            const auto& t = trades[trades.size() - 1 - i];
+            const auto& t = trades[i];
 
             ImGui::TableNextRow();
 
@@ -625,8 +1004,10 @@ void Dashboard::openOrdersWindow()
 
         ImGui::TableHeadersRow();
 
-        for (auto& o : orders)
+        for (int i = orders.size() - 1; i >= 0; --i)
         {
+            auto& o = orders[i];
+
             ImGui::TableNextRow();
 
             ImGui::TableNextColumn();
@@ -663,6 +1044,10 @@ void Dashboard::openOrdersWindow()
                 {
                     errorManager.addError(result.error);
                     ImGui::OpenPopup("Cancel Order Error");
+                }
+                else
+                {
+                    backend.refreshHeader(current_market_id);
                 }
             }
 
@@ -714,8 +1099,10 @@ void Dashboard::orderHistoryWindow()
 
         ImGui::TableHeadersRow();
 
-        for (auto& o : orders)
+        for (int i = orders.size() - 1; i >= 0; --i)
         {
+            auto& o = orders[i];
+
             ImGui::TableNextRow();
 
             ImGui::TableNextColumn();
@@ -784,4 +1171,55 @@ PageType Dashboard::DashboardMenu()
         ImGui::EndPopup();
     }
     return nextPage;
+}
+
+bool Dashboard::orderConfirmPopup()
+{
+    bool closed = false;
+    if (ImGui::BeginPopupModal("Confirm Suspicious Order", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("This order looks unusual.");
+        ImGui::Separator();
+
+        ImGui::Text("Side: %s", pendingSide.c_str());
+        ImGui::Text("Price: %.2f", pendingPrice);
+        ImGui::Text("Quantity: %.2f", pendingQty);
+        ImGui::Text("Estimated: %.2f", pendingPrice * pendingQty);
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("Confirm", ImVec2(120,0)))
+        {
+            Result<void> result =
+                backend.placeOrder(current_market_id,
+                                pendingSide,
+                                (long long)(pendingPrice * 10000),
+                                (long long)(pendingQty * 10000));
+
+            if (!result.isSuccess())
+            {
+                errorManager.addError(result.error);
+                openPlaceOrderErrorPopup = true;
+            }
+            else
+            {
+                backend.refreshHeader(current_market_id);
+                orderState = OrderState::None;
+            }
+
+            closed = true;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", ImVec2(120,0)))
+        {
+            closed = true;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    return closed;
 }

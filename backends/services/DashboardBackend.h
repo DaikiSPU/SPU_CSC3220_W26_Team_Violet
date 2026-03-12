@@ -2,6 +2,7 @@
 
 #include "Database.h"
 #include "BackendContext.h"
+#include <cmath>
 
 struct DashboardData
 {
@@ -14,6 +15,8 @@ struct DashboardData
     long long rawUnrealized = 0;
     long long rawRealized = 0;
     long long rawEquity = 0;
+
+    long long rawPosition = 0;
 };
 
 struct TradeHistoryRow
@@ -55,14 +58,18 @@ public:
     Result<void> placeOrder(int currentMarketId, std::string side, int price, int qty);
     const DashboardData& getData() const { return data; }
     long long getAvailableCash();
-    long long getPosition(int currentMarketId);
+    long long getPosition();
     Result<std::vector<TradeHistoryRow>> getTradeHistory();
+    Result<std::vector<TradeHistoryRow>> getTradeHistory(int currentMarketId);
     Result<std::vector<OrderHistoryRow>> getOrderHistory();
 
     Result<std::vector<OpenOrdersRow>> getOpenOrders();
     Result<void> cancelOrder(long long orderId);
 
+    bool isSuspiciousOrder(double price, double qty);
+    bool isMyOrder(int orderUserId);
     
+    bool seeMatch();
 
 private:
     DashboardData data;

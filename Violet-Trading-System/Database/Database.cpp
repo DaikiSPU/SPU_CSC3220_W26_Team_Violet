@@ -409,12 +409,14 @@ Result<bool> Database::recordTradeAndUpdateOrders(
 
     if (!beginTransaction().isSuccess())
     {
+        printf("[DB ERROR] BEGIN TRANSACTION failed\n");
         result.setError(ErrorType::Database,"BEGIN failed");
         return result;
     }
 
     if (!recordTrade(t).isSuccess())
     {
+        printf("[DB ERROR] recordTrade failed\n");
         rollback();
         result.setError(ErrorType::Database,"recordTrade failed");
         return result;
@@ -422,23 +424,30 @@ Result<bool> Database::recordTradeAndUpdateOrders(
 
     if (!updateOrder(buy.order_id,buy_remaining,t.buyStatus).isSuccess())
     {
+        printf("[DB ERROR] updateOrder BUY failed | order_id=%lld\n", buy.order_id);
         rollback();
         return result;
     }
 
     if (!updateOrder(sell.order_id,sell_remaining,t.sellStatus).isSuccess())
     {
+        printf("[DB ERROR] updateOrder SELL failed | order_id=%lld\n", sell.order_id);
         rollback();
         return result;
     }
 
     long long tradeValue = (t.price * t.qty) / 10000;
 
+    printf("[TRADE] price=%lld qty=%lld value=%lld\n", t.price, t.qty, tradeValue);
+
     // BUYER cash settlement
     if (buy.user_id > 0)
     {
+        printf("[BUYER] subtract cash user=%d amount=%lld\n", buy.user_id, tradeValue);
+
         if (!subtractCashBalance(buy.user_id, tradeValue).isSuccess())
         {
+            printf("[DB ERROR] subtractCashBalance failed user=%d\n", buy.user_id);
             rollback();
             return result;
         }
@@ -447,36 +456,68 @@ Result<bool> Database::recordTradeAndUpdateOrders(
     // SELLER cash settlement
     if (sell.user_id > 0)
     {
+        printf("[SELLER] add cash user=%d amount=%lld\n", sell.user_id, tradeValue);
+
         if (!addCashBalance(sell.user_id, tradeValue).isSuccess())
         {
+            printf("[DB ERROR] addCashBalance failed user=%d\n", sell.user_id);
             rollback();
             return result;
         }
+
+        printf("[SELLER] release cash user=%d amount=%lld\n", sell.user_id, tradeValue);
 
         if (!releaseCash(sell.user_id, tradeValue).isSuccess())
         {
+            printf("[DB ERROR] releaseCash failed user=%d\n", sell.user_id);
             rollback();
             return result;
         }
     }
 
+    printf("[POSITION] BUY BEFORE qty=%lld avail=%lld\n",
+        getPositionQtyRaw(buy.user_id, buy.bot_id, t.market_id).value,
+        getPositionAvailableRaw(buy.user_id, buy.bot_id, t.market_id).value);
+
     if (!applyBuyPosition(buy.user_id,buy.bot_id,t.market_id,t.qty,t.price).isSuccess())
     {
+        printf("[DB ERROR] applyBuyPosition failed user=%d bot=%d\n",
+               buy.user_id, buy.bot_id);
         rollback();
         return result;
     }
 
-    if (!applySellPosition(sell.user_id,sell.bot_id,t.market_id,t.qty).isSuccess())
+    printf("[POSITION] BUY AFTER qty=%lld avail=%lld\n",
+        getPositionQtyRaw(buy.user_id, buy.bot_id, t.market_id).value,
+        getPositionAvailableRaw(buy.user_id, buy.bot_id, t.market_id).value);
+
+    printf("SELL BEFORE qty=%lld avail=%lld\n",
+        getPositionQtyRaw(sell.user_id, sell.bot_id, t.market_id).value,
+        getPositionAvailableRaw(sell.user_id, sell.bot_id, t.market_id).value);
+
+    auto sellPosResult = applySellPosition(sell.user_id, sell.bot_id, t.market_id, t.qty);
+    if (!sellPosResult.isSuccess())
     {
+        printf("[DB ERROR] applySellPosition failed user=%d bot=%d\n",
+               sell.user_id, sell.bot_id);
+
         rollback();
+        result.setError(ErrorType::Database, sellPosResult.error.getMessage());
         return result;
     }
+
+    printf("SELL AFTER qty=%lld avail=%lld\n",
+        getPositionQtyRaw(sell.user_id, sell.bot_id, t.market_id).value,
+        getPositionAvailableRaw(sell.user_id, sell.bot_id, t.market_id).value);
 
     if (!commit().isSuccess())
     {
+        printf("[DB ERROR] COMMIT failed\n");
         rollback();
         return result;
     }
+
+    printf("[TRADE SUCCESS] trade_id committed\n");
 
     result.value = true;
     return result;
@@ -571,15 +612,23 @@ Result<void> Database::applyBuyPosition(
     long long price)
 {
     Result<void> result;
-
     sqlite3_stmt* stmt = nullptr;
 
-    const char* sql =
+    const char* sql_user =
         "INSERT INTO positions (user_id, bot_id, market_id, qty, qty_available, avg_price) "
-        "VALUES (?, ?, ?, ?, ?, ?) "
+        "VALUES (?, NULL, ?, ?, ?, ?) "
         "ON CONFLICT(user_id, market_id) DO UPDATE SET "
         "qty = qty + excluded.qty, "
         "qty_available = qty_available + excluded.qty;";
+
+    const char* sql_bot =
+        "INSERT INTO positions (user_id, bot_id, market_id, qty, qty_available, avg_price) "
+        "VALUES (NULL, ?, ?, ?, ?, ?) "
+        "ON CONFLICT(bot_id, market_id) DO UPDATE SET "
+        "qty = qty + excluded.qty, "
+        "qty_available = qty_available + excluded.qty;";
+
+    const char* sql = (user_id > 0) ? sql_user : sql_bot;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
@@ -587,20 +636,17 @@ Result<void> Database::applyBuyPosition(
         return result;
     }
 
-    if (user_id > 0)
-        sqlite3_bind_int64(stmt, 1, user_id);
-    else
-        sqlite3_bind_null(stmt, 1);
+    int idx = 1;
 
-    // bot_id
-    if (bot_id > 0)
-        sqlite3_bind_int64(stmt, 2, bot_id);
+    if (user_id > 0)
+        sqlite3_bind_int(stmt, idx++, user_id);
     else
-        sqlite3_bind_null(stmt, 2);
-    sqlite3_bind_int(stmt,3,market_id);
-    sqlite3_bind_int64(stmt,4,qty);
-    sqlite3_bind_int64(stmt,5,qty);
-    sqlite3_bind_int64(stmt,6,price);
+        sqlite3_bind_int(stmt, idx++, bot_id);
+
+    sqlite3_bind_int(stmt, idx++, market_id);
+    sqlite3_bind_int64(stmt, idx++, qty);
+    sqlite3_bind_int64(stmt, idx++, qty);
+    sqlite3_bind_int64(stmt, idx++, price);
 
     int rc = sqlite3_step(stmt);
 
@@ -618,33 +664,66 @@ Result<void> Database::applyBuyPosition(
 Result<void> Database::applySellPosition(int user_id, int bot_id, int market_id, long long qty)
 {
     Result<void> result;
+    sqlite3_stmt* stmt = nullptr;
 
-    std::string sql =
+    const char* sql =
         "UPDATE positions "
-        "SET qty = qty - " + std::to_string(qty) +
-        " WHERE market_id = " + std::to_string(market_id) +
-        " AND " +
-        (user_id ?
-        "user_id = " + std::to_string(user_id)
-        :
-        "bot_id = " + std::to_string(bot_id));
+        "SET qty = qty - ? "
+        "WHERE market_id = ? "
+        "AND qty >= ? "
+        "AND ("
+        "   (user_id = ? AND bot_id IS NULL) OR "
+        "   (bot_id = ? AND user_id IS NULL)"
+        ");";
 
-    Result<void> r = executeQuery(sql);
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
 
-    if (!r.isSuccess())
-        result.setError(ErrorType::Database, r.error.getMessage());
+    sqlite3_bind_int64(stmt, 1, qty);
+    sqlite3_bind_int(stmt, 2, market_id);
+    sqlite3_bind_int64(stmt, 3, qty);
 
+    if (user_id > 0)
+        sqlite3_bind_int(stmt, 4, user_id);
+    else
+        sqlite3_bind_null(stmt, 4);
+
+    if (bot_id > 0)
+        sqlite3_bind_int(stmt, 5, bot_id);
+    else
+        sqlite3_bind_null(stmt, 5);
+
+    int rc = sqlite3_step(stmt);
+
+    if (rc != SQLITE_DONE)
+    {
+        sqlite3_finalize(stmt);
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
+
+    if (sqlite3_changes(db) == 0)
+    {
+        sqlite3_finalize(stmt);
+        result.setError(ErrorType::Validation, "failed to reduce sell position");
+        return result;
+    }
+
+    sqlite3_finalize(stmt);
     return result;
 }
 
 Result<bool> Database::isOrderOpen(long long order_id)
 {
     Result<bool> result;
-    result.value = false;
 
-    sqlite3_stmt* stmt = nullptr;
     const char* sql =
-        "SELECT status FROM Orders WHERE order_id = ? LIMIT 1;";
+        "SELECT status FROM Orders WHERE order_id = ?;";
+
+    sqlite3_stmt* stmt;
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
@@ -654,19 +733,17 @@ Result<bool> Database::isOrderOpen(long long order_id)
 
     sqlite3_bind_int64(stmt, 1, order_id);
 
-    int rc = sqlite3_step(stmt);
-    if (rc == SQLITE_ROW)
+    if (sqlite3_step(stmt) == SQLITE_ROW)
     {
-        const unsigned char* statusText = sqlite3_column_text(stmt, 0);
-        std::string status = statusText ? reinterpret_cast<const char*>(statusText) : "";
-        result.value = (status == "open");
-    }
-    else
-    {
-        result.setError(ErrorType::Database, "Order not found");
+        std::string status =
+            (const char*)sqlite3_column_text(stmt,0);
+
+        result.value =
+            (status == "open" || status == "partial");
     }
 
     sqlite3_finalize(stmt);
+
     return result;
 }
 
@@ -1748,9 +1825,9 @@ Result<void> Database::lockCash(int user_id, long long amount)
     int rc = sqlite3_step(stmt);
 
     if (rc != SQLITE_DONE)
-    {
         result.setError(ErrorType::Database, sqlite3_errmsg(db));
-    }
+    else if (sqlite3_changes(db) == 0)
+        result.setError(ErrorType::Validation, "insufficient cash");
 
     sqlite3_finalize(stmt);
     return result;
@@ -1873,6 +1950,12 @@ Result<void> Database::lockPosition(
     int market_id,
     long long qty)
 {
+    // if (user_id > 0)
+    // {
+    //     printf("qty: %lld\n", qty);
+    //     printf("available qty: %lld\n", getPositionAvailableRaw(user_id, bot_id, market_id).value);
+    //     printf("now raw qty: %lld\n", getPositionQtyRaw(user_id, bot_id, market_id).value);
+    // }
     Result<void> result;
 
     sqlite3_stmt* stmt = nullptr;
@@ -1954,8 +2037,15 @@ Result<void> Database::releasePosition(
 
     sqlite3_bind_int64(stmt,1,qty);
     sqlite3_bind_int(stmt,2,market_id);
-    sqlite3_bind_int64(stmt,3,user_id);
-    sqlite3_bind_int64(stmt,4,bot_id);
+    if (user_id > 0)
+        sqlite3_bind_int(stmt,3,user_id);
+    else
+        sqlite3_bind_null(stmt,3);
+
+    if (bot_id > 0)
+        sqlite3_bind_int(stmt,4,bot_id);
+    else
+        sqlite3_bind_null(stmt,4);
 
     int rc = sqlite3_step(stmt);
 

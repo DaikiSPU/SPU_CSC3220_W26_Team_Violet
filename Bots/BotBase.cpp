@@ -44,8 +44,21 @@ long long BotBase::getMidPrice(Database &db, int market_id)
 
 Result<void> BotBase::sendLimitOrder(int market_id, const std::string &side, long long price, long long qty)
 {
-    // printf("SEND LITMIT ORDER[%s] -> botId=%d price=%lld qty=%lld\n", side.c_str(), botId, price, qty);
-    Order order;
+    Result<void> result;
+
+    if (price <= 0 || qty <= 0)
+    {
+        result.setError(ErrorType::Validation, "invalid bot order");
+        return result;
+    }
+
+    if (side != "buy" && side != "sell")
+    {
+        result.setError(ErrorType::Validation, "invalid side");
+        return result;
+    }
+
+    Order order{};
 
     order.user_id = 0;
     order.bot_id = botId;
@@ -59,8 +72,9 @@ Result<void> BotBase::sendLimitOrder(int market_id, const std::string &side, lon
     order.qty = qty;
     order.qty_remaining = qty;
 
-    Result<void> result = engine.placeOrder(order);
-    return result;
+    order.status = "open";
+
+    return engine.placeOrder(order);
 }
 
 void BotBase::sendMarketOrder(int market_id, const std::string& side, long long qty)
