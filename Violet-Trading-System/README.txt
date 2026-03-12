@@ -10,7 +10,7 @@ Welcome to the Violet Trading System! Under the hood, this is a strict, high-per
 HOW TO COMPILE (2 Easy Steps):
 You do NOT need to install external SQLite libraries.
 1. gcc -c sqlite3.c -o sqlite3.o
-2. g++ -std=c++17 main.cpp Database/Database.cpp Engine/Engine.cpp sqlite3.o -o violet_engine
+2. g++ -std=c++17 main.cpp Database/Database.cpp Engine/Engine.cpp sqlite3.o -I. -IDatabase -IEngine -I/Users/YourNameHERE/SPU_CSC3220_W26_Team_Violet/core -o violet_engine
 
 Run: ./violet_engine (Mac/Linux) or violet_engine.exe (Windows)
 

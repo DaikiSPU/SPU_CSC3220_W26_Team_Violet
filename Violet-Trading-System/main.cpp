@@ -125,7 +125,7 @@ int main() {
             current_user_id = db.loginUser(username, password);
         } else if (choice == 2) {
             cout << "New User: "; cin >> username; cout << "New Pass: "; cin >> password;
-            db.registerUser(username, password);
+            db.registerUser(username, password, "0000");
         } else if (choice == 3) return 0;
     }
 
@@ -169,7 +169,7 @@ int main() {
             }
         }
 
-        double cash = db.getAvailableCash(current_user_id);
+        double cash = db.getAvailableCash(current_user_id).value;
         string currentRank = getTraderRank(cash);
         db.updateHighScore(username, cash, currentRank); 
 
@@ -219,7 +219,7 @@ int main() {
 
             // 2. Portfolio Anti-Cheat Check
             if (option == 1) { // Buying
-                double true_cash = db.getTrueAvailableCash(current_user_id);
+                double true_cash = db.getAvailableCash(current_user_id).value;
                 if ((p * q) > true_cash) {
                     cout << "[!] INSUFFICIENT FUNDS: You need $" << (p * q) << " but only have $" << true_cash << " available.\n";
                     continue; // Rejects the order
@@ -270,7 +270,7 @@ int main() {
             cin >> confirm;
             
             if (confirm == 'y' || confirm == 'Y') {
-                db.deleteUserAccount(current_user_id, username);
+                db.deleteUserAccount(current_user_id);
                 cout << "-> Sent to the Shadow Realm. Restart the game to register again!\n";
                 break; 
             } else {
@@ -284,3 +284,4 @@ int main() {
     }
     return 0;
 }
+
