@@ -17,7 +17,7 @@ class MarketMakerBot : public BotBase {
         const int sameOrder = 2;
         const int deleteThreshold = 10;
         const int orderMaxAge = 30;
-        const int limit = 500000;
+        const int limit = 10000000;
 
         int countMyOrdersAtPrice(int market_id, const std::string& side, long long price);
         void cancelFarOrders(int marketId, long long mid, long long tick);

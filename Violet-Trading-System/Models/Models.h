@@ -69,14 +69,33 @@ struct Order {
 
 // Matched Execution
 struct Trade {
-    long long trade_id;          
-    long long market_id;         
-    long long buy_order_id;      
-    long long sell_order_id;     
-    long long price;             
-    long long qty;               
-    std::string executed_at;     
+    long long trade_id;
+    long long market_id;
+
+    long long buy_order_id;
+    long long sell_order_id;
+
+    long long buy_user_id;
+    long long sell_user_id;
+
+    long long buy_bot_id;
+    long long sell_bot_id;
+
+
+    long long price;
+    long long qty;
+
+    std::string buyStatus;
+    std::string sellStatus;
+
+    std::string trade_time;
+
+    std::string aggressor_side;
 };
+
+
+
+
 
 // Audit Trail
 struct Transaction {
@@ -91,13 +110,17 @@ struct Transaction {
 
 // --- API STRUCTURES FOR UI ---
 struct OrderHistoryRow {
+    long long order_id;
+
     std::string time;
-    std::string market_symbol; 
-    std::string side;          
-    double price;
-    double quantity;
-    double total;
-    std::string status;        
+    std::string marketSymbol;
+    std::string side;
+
+    long long price;
+    long long qty;
+    long long qty_remaining;
+
+    std::string status;   
 };
 
 #endif // MODELS_H

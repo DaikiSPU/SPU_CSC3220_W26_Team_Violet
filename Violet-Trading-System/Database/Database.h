@@ -31,6 +31,9 @@ public:
     void initTables();
     
     std::vector<std::pair<int, std::string>> getAvailableMarkets();
+    Result<std::string> getMarketName(int marketId);
+    Result<std::string> getMarketSymbol(int marketId);
+
     
     Result<std::pair<long long,long long>> addOrder(const Order& order);
     Result<bool> recordTradeAndUpdateOrders(
@@ -38,9 +41,7 @@ public:
         const Order& buy,
         const Order& sell,
         long long buy_remaining,
-        long long sell_remaining,
-        const std::string& buy_status,
-        const std::string& sell_status);
+        long long sell_remaining);
 
     Result<bool> recordTrade(const Trade& trade);
     Result<void> updateOrder(long long order_id, long long new_qty_remaining, const std::string& new_status);
@@ -58,8 +59,8 @@ public:
     
     Result<long long> getAvailableCash(int user_id);
     Result<long long> getLastPriceRaw(int market_id);
-    Result<long long> getPositionQtyRaw(int user_id, int market_id);
-    Result<long long> getBotPositionQtyRaw(int bot_id, int market_id);
+    Result<long long> getPositionQtyRaw(int user_id, int bot_id, int market_id);
+    Result<long long> getPositionAvailableRaw(int user_id, int bot_id, int market_id);
     long long getPositionAvePriceRaw(int user_id, int market_id);
     std::pair<long long, long long> getPrevAndCurrentPricesRaw(int market_id);
     long long getRealizedPnLRaw(int user_id);

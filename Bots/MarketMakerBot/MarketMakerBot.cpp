@@ -48,10 +48,23 @@ void MarketMakerBot::run(int tick)
 
             if (countMyOrdersAtPrice(m.marketId,"sell",sellPrice) < sameOrder)
             {
+                Result<long long> positionResult =
+                    db.getPositionAvailableRaw(0, botId, m.marketId);
+                if (!positionResult.isSuccess())
+                {
+                    printf("%s\n", positionResult.error.getMessage().c_str());
+                    continue;
+                }
+                if (positionResult.value < qty)
+                {
+                    printf("continue\n");
+                    continue;
+                }
                 result = sendLimitOrder(m.marketId,"sell", sellPrice, qty);
                 if (!result.isSuccess())
                 {
                     printf("%s\n", result.error.getMessage().c_str());
+                    continue;
                 }
             }
         }
@@ -121,7 +134,7 @@ void MarketMakerBot::cancelFarOrders(int marketId, long long mid, long long tick
 
         if (std::llabs(o.price - mid) > deleteThreshold * tickSize)
         {
-            engine.cancelOrder(o.order_id);
+            engine.cancelOrder(o);
         }
     }
 
@@ -134,7 +147,7 @@ void MarketMakerBot::cancelFarOrders(int marketId, long long mid, long long tick
 
         if (std::llabs(o.price - mid) > deleteThreshold * tickSize)
         {
-            engine.cancelOrder(o.order_id);
+            engine.cancelOrder(o);
         }
     }
 }
@@ -150,7 +163,7 @@ void MarketMakerBot::cancelOldOrders(int marketId)
 
         if (std::time(nullptr) - o.created_at > orderMaxAge)
         {
-            engine.cancelOrder(o.order_id);
+            engine.cancelOrder(o);
         }
     }
 
@@ -163,14 +176,14 @@ void MarketMakerBot::cancelOldOrders(int marketId)
 
         if (std::time(nullptr) - o.created_at > orderMaxAge)
         {
-            engine.cancelOrder(o.order_id);
+            engine.cancelOrder(o);
         }
     }
 }
 
 void MarketMakerBot::inventoryControl(int marketId)
 {
-    auto posResult = db.getPositionQtyRaw(botId, marketId);
+    auto posResult = db.getPositionQtyRaw(0, botId, marketId);
 
     if (!posResult.isSuccess())
         return;

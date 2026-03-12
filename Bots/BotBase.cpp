@@ -93,12 +93,14 @@ void BotBase::loadMarketConfig()
 
         printf("marketId: %d\n", market_id);
 
+        Result<std::string> marketNameResult = db.getMarketName(market_id);
         Result<long long> tickResult = db.getTickSize(market_id);
         Result<long long> lotResult  = db.getLotSize(market_id);
 
+        std::string marketName = marketNameResult.isSuccess() ? marketNameResult.value : "unkown";
         long long tickSize = tickResult.isSuccess() ? tickResult.value : 100;
         long long lotSize  = lotResult.isSuccess()  ? lotResult.value  : 10000;
 
-        markets.push_back({market_id, tickSize, lotSize});
+        markets.push_back({market_id, marketName, tickSize, lotSize});
     }
 }

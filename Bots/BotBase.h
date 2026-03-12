@@ -8,6 +8,7 @@
 struct MarketInfo
 {
     int marketId;
+    std::string marketName;
     long long tickSize;
     long long lotSize;
 };

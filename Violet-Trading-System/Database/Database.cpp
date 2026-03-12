@@ -327,8 +327,8 @@ void Database::initTables() {
                 "NULL, "
                 "bots.bot_id, "
                 "markets.market_id, "
-                "500000, "
-                "500000, "
+                "10000000, "
+                "10000000, "
                 "markets.reference_price "
                 "FROM bots, markets "
                 "WHERE bots.bot_name = 'System_MarketMaker';");
@@ -402,9 +402,7 @@ Result<bool> Database::recordTradeAndUpdateOrders(
     const Order& buy,
     const Order& sell,
     long long buy_remaining,
-    long long sell_remaining,
-    const std::string& buy_status,
-    const std::string& sell_status)
+    long long sell_remaining)
 {
     Result<bool> result;
     result.value = false;
@@ -422,13 +420,13 @@ Result<bool> Database::recordTradeAndUpdateOrders(
         return result;
     }
 
-    if (!updateOrder(buy.order_id,buy_remaining,buy_status).isSuccess())
+    if (!updateOrder(buy.order_id,buy_remaining,t.buyStatus).isSuccess())
     {
         rollback();
         return result;
     }
 
-    if (!updateOrder(sell.order_id,sell_remaining,sell_status).isSuccess())
+    if (!updateOrder(sell.order_id,sell_remaining,t.sellStatus).isSuccess())
     {
         rollback();
         return result;
@@ -565,25 +563,55 @@ Result<void> Database::updateOrder(long long order_id, long long new_qty_remaini
     return result;
 }
 
-Result<void> Database::applyBuyPosition(int user_id, int bot_id, int market_id, long long qty, long long price)
+Result<void> Database::applyBuyPosition(
+    int user_id,
+    int bot_id,
+    int market_id,
+    long long qty,
+    long long price)
 {
     Result<void> result;
 
-    std::string sql =
-        "INSERT INTO positions (user_id, bot_id, market_id, qty, avg_price) VALUES (" +
-        (user_id ? std::to_string(user_id) : "NULL") + "," +
-        (bot_id ? std::to_string(bot_id) : "NULL") + "," +
-        std::to_string(market_id) + "," +
-        std::to_string(qty) + "," +
-        std::to_string(price) + ") "
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql =
+        "INSERT INTO positions (user_id, bot_id, market_id, qty, qty_available, avg_price) "
+        "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(user_id, market_id) DO UPDATE SET "
-        "qty = qty + excluded.qty;";
+        "qty = qty + excluded.qty, "
+        "qty_available = qty_available + excluded.qty;";
 
-    Result<void> r = executeQuery(sql);
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
 
-    if (!r.isSuccess())
-        result.setError(ErrorType::Database, r.error.getMessage());
+    if (user_id > 0)
+        sqlite3_bind_int64(stmt, 1, user_id);
+    else
+        sqlite3_bind_null(stmt, 1);
 
+    // bot_id
+    if (bot_id > 0)
+        sqlite3_bind_int64(stmt, 2, bot_id);
+    else
+        sqlite3_bind_null(stmt, 2);
+    sqlite3_bind_int(stmt,3,market_id);
+    sqlite3_bind_int64(stmt,4,qty);
+    sqlite3_bind_int64(stmt,5,qty);
+    sqlite3_bind_int64(stmt,6,price);
+
+    int rc = sqlite3_step(stmt);
+
+    if (rc != SQLITE_DONE)
+    {
+        sqlite3_finalize(stmt);
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
+
+    sqlite3_finalize(stmt);
     return result;
 }
 
@@ -1007,6 +1035,83 @@ std::vector<std::pair<int, std::string>> Database::getAvailableMarkets() {
     return markets;
 }
 
+Result<std::string> Database::getMarketName(int marketId)
+{
+    Result<std::string> result;
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql =
+        "SELECT market_name "
+        "FROM Markets "
+        "WHERE market_id = ?;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
+
+    sqlite3_bind_int(stmt, 1, marketId);
+
+    int rc = sqlite3_step(stmt);
+
+    if (rc == SQLITE_ROW)
+    {
+        const unsigned char* name = sqlite3_column_text(stmt, 0);
+        result.value = std::string(reinterpret_cast<const char*>(name));
+    }
+    else if (rc == SQLITE_DONE)
+    {
+        result.setError(ErrorType::Validation, "market not found");
+    }
+    else
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+Result<std::string> Database::getMarketSymbol(int marketId)
+{
+    Result<std::string> result;
+    sqlite3_stmt* stmt = nullptr;
+
+    const char* sql =
+        "SELECT symbol "
+        "FROM Markets "
+        "WHERE market_id = ?;";
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        return result;
+    }
+
+    sqlite3_bind_int(stmt, 1, marketId);
+
+    int rc = sqlite3_step(stmt);
+
+    if (rc == SQLITE_ROW)
+    {
+        const unsigned char* symbol = sqlite3_column_text(stmt, 0);
+        result.value = std::string(reinterpret_cast<const char*>(symbol));
+    }
+    else if (rc == SQLITE_DONE)
+    {
+        result.setError(ErrorType::Validation, "symbol not found");
+    }
+    else
+    {
+        result.setError(ErrorType::Database, sqlite3_errmsg(db));
+    }
+
+    sqlite3_finalize(stmt);
+    return result;
+}
+
+
 Result<long long> Database::getAvailableCash(int user_id)
 {
     Result<long long> result;
@@ -1085,14 +1190,18 @@ Result<long long> Database::getLastPriceRaw(int market_id)
     return result;
 }
 
-Result<long long> Database::getPositionQtyRaw(int user_id, int market_id)
+Result<long long> Database::getPositionQtyRaw(int user_id, int bot_id, int market_id)
 {
     Result<long long> result;
     sqlite3_stmt* stmt = nullptr;
 
     const char* sql =
         "SELECT qty FROM Positions "
-        "WHERE user_id = ? AND market_id = ?;";
+        "WHERE market_id = ? "
+        "AND ("
+        "   (user_id = ? AND bot_id IS NULL) OR "
+        "   (bot_id = ? AND user_id IS NULL)"
+        ");";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
@@ -1100,8 +1209,19 @@ Result<long long> Database::getPositionQtyRaw(int user_id, int market_id)
         return result;
     }
 
-    sqlite3_bind_int(stmt, 1, user_id);
-    sqlite3_bind_int(stmt, 2, market_id);
+    sqlite3_bind_int(stmt, 1, market_id);
+
+    // user_id
+    if (user_id > 0)
+        sqlite3_bind_int(stmt, 2, user_id);
+    else
+        sqlite3_bind_null(stmt, 2);
+
+    // bot_id
+    if (bot_id > 0)
+        sqlite3_bind_int(stmt, 3, bot_id);
+    else
+        sqlite3_bind_null(stmt, 3);
 
     int rc = sqlite3_step(stmt);
 
@@ -1124,14 +1244,18 @@ Result<long long> Database::getPositionQtyRaw(int user_id, int market_id)
     return result;
 }
 
-Result<long long> Database::getBotPositionQtyRaw(int bot_id, int market_id)
+Result<long long> Database::getPositionAvailableRaw(int user_id, int bot_id, int market_id)
 {
     Result<long long> result;
     sqlite3_stmt* stmt = nullptr;
 
     const char* sql =
-        "SELECT qty FROM Positions "
-        "WHERE bot_id = ? AND market_id = ?;";
+        "SELECT qty_available FROM Positions "
+        "WHERE market_id = ? "
+        "AND ("
+        "   (user_id = ? AND bot_id IS NULL) OR "
+        "   (bot_id = ? AND user_id IS NULL)"
+        ");";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK)
     {
@@ -1139,20 +1263,39 @@ Result<long long> Database::getBotPositionQtyRaw(int bot_id, int market_id)
         return result;
     }
 
-    sqlite3_bind_int(stmt, 1, bot_id);
-    sqlite3_bind_int(stmt, 2, market_id);
+    // market_id
+    sqlite3_bind_int(stmt, 1, market_id);
+
+    // user_id
+    if (user_id > 0)
+        sqlite3_bind_int(stmt, 2, user_id);
+    else
+        sqlite3_bind_null(stmt, 2);
+
+    // bot_id
+    if (bot_id > 0)
+        sqlite3_bind_int(stmt, 3, bot_id);
+    else
+        sqlite3_bind_null(stmt, 3);
 
     int rc = sqlite3_step(stmt);
 
     if (rc == SQLITE_ROW)
+    {
         result.value = sqlite3_column_int64(stmt, 0);
+    }
     else if (rc == SQLITE_DONE)
+    {
         result.value = 0;
+    }
     else
+    {
         result.setError(ErrorType::Database, sqlite3_errmsg(db));
+        sqlite3_finalize(stmt);
+        return result;
+    }
 
     sqlite3_finalize(stmt);
-
     return result;
 }
 
@@ -1232,40 +1375,40 @@ long long Database::getRealizedPnLRaw(int user_id)
     return pnl;
 }
 
-std::vector<OrderHistoryRow> Database::getUserOrderHistory(int user_id) {
-    std::vector<OrderHistoryRow> history;
-    sqlite3_stmt* stmt;
+// std::vector<OrderHistoryRow> Database::getUserOrderHistory(int user_id) {
+//     std::vector<OrderHistoryRow> history;
+//     sqlite3_stmt* stmt;
     
-    const char* sql = R"(
-        SELECT o.created_at, m.symbol, o.side, o.price, o.qty, o.status 
-        FROM Orders o
-        JOIN Markets m ON o.market_id = m.market_id
-        WHERE o.user_id = ?
-        ORDER BY o.created_at DESC;
-    )";
+//     const char* sql = R"(
+//         SELECT o.created_at, m.symbol, o.side, o.price, o.qty, o.status 
+//         FROM Orders o
+//         JOIN Markets m ON o.market_id = m.market_id
+//         WHERE o.user_id = ?
+//         ORDER BY o.created_at DESC;
+//     )";
     
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_int64(stmt, 1, user_id);
+//     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+//         sqlite3_bind_int64(stmt, 1, user_id);
         
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            OrderHistoryRow row;
-            const unsigned char* t_text = sqlite3_column_text(stmt, 0);
-            row.time = t_text ? reinterpret_cast<const char*>(t_text) : "";
-            const unsigned char* m_text = sqlite3_column_text(stmt, 1);
-            row.market_symbol = m_text ? reinterpret_cast<const char*>(m_text) : "";
-            const unsigned char* s_text = sqlite3_column_text(stmt, 2);
-            row.side = s_text ? reinterpret_cast<const char*>(s_text) : "";
-            row.price = sqlite3_column_double(stmt, 3);
-            row.quantity = sqlite3_column_double(stmt, 4);
-            row.total = row.price * row.quantity;
-            const unsigned char* st_text = sqlite3_column_text(stmt, 5);
-            row.status = st_text ? reinterpret_cast<const char*>(st_text) : "";
-            history.push_back(row);
-        }
-    }
-    sqlite3_finalize(stmt);
-    return history;
-}
+//         while (sqlite3_step(stmt) == SQLITE_ROW) {
+//             OrderHistoryRow row;
+//             const unsigned char* t_text = sqlite3_column_text(stmt, 0);
+//             row.time = t_text ? reinterpret_cast<const char*>(t_text) : "";
+//             const unsigned char* m_text = sqlite3_column_text(stmt, 1);
+//             row.market_symbol = m_text ? reinterpret_cast<const char*>(m_text) : "";
+//             const unsigned char* s_text = sqlite3_column_text(stmt, 2);
+//             row.side = s_text ? reinterpret_cast<const char*>(s_text) : "";
+//             row.price = sqlite3_column_double(stmt, 3);
+//             row.quantity = sqlite3_column_double(stmt, 4);
+//             row.total = row.price * row.quantity;
+//             const unsigned char* st_text = sqlite3_column_text(stmt, 5);
+//             row.status = st_text ? reinterpret_cast<const char*>(st_text) : "";
+//             history.push_back(row);
+//         }
+//     }
+//     sqlite3_finalize(stmt);
+//     return history;
+// }
 
 std::vector<std::pair<long long, long long>> Database::getTopBuyOrders(int market_id, int limit)
 {

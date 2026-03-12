@@ -38,6 +38,8 @@ Result<void> Engine::placeOrder(Order new_order)
 
         orderMarketMap[new_order.order_id] = new_order.market_id;
 
+        setOrderHistory(new_order);
+
         matchMarketOrder(new_order);
         return placeOrderResult;
     }
@@ -69,7 +71,7 @@ Result<void> Engine::placeOrder(Order new_order)
     // ---- SELL ORDER ----
     else if (new_order.side == "sell")
     {
-        if (isUser || isBot)
+        if (isUser || (isBot && new_order.bot_id == 7))
         {
             auto lockPosResult = db.lockPosition(
                 new_order.user_id, new_order.bot_id,
@@ -101,18 +103,12 @@ Result<void> Engine::placeOrder(Order new_order)
     {
         if (cashLocked)
         {
-            if (isUser)
-                db.releaseCash(new_order.user_id, lockedCashAmount);
-            else
-                db.releaseCash(new_order.bot_id, lockedCashAmount);
+            db.releaseCash(new_order.user_id, lockedCashAmount);
         }
 
         if (positionLocked)
         {
-            if (isUser)
-                db.releasePosition(new_order.user_id, new_order.bot_id, new_order.market_id, new_order.qty);
-            else
-                db.releasePosition(new_order.user_id, new_order.bot_id, new_order.market_id, new_order.qty);
+            db.releasePosition(new_order.user_id, new_order.bot_id, new_order.market_id, new_order.qty);
         }
 
         placeOrderResult.setError(ErrorType::Database, dbResult.error.getMessage());
@@ -130,8 +126,10 @@ Result<void> Engine::placeOrder(Order new_order)
     else
         sellBooks[new_order.market_id].push(new_order);
 
+    setOrderHistory(new_order);
+
     // ---- MATCH ----
-    match(new_order.market_id);
+    match(new_order.market_id, new_order.side);
 
     return placeOrderResult;
 }
@@ -170,9 +168,13 @@ void Engine::cleanupCancelledAndFilled(int market_id)
     cleanTopSellBook(market_id);
 }
 
-Result<void> Engine::cancelOrder(long long order_id)
+Result<void> Engine::cancelOrder(const Order& order)
 {
     Result<void> result;
+
+    Order canceledOrder = order;
+
+    long long order_id = order.order_id;
 
     auto it = orderMarketMap.find(order_id);
 
@@ -184,7 +186,12 @@ Result<void> Engine::cancelOrder(long long order_id)
 
     int market_id = it->second;
 
-    Result<void> dbResult = db.updateOrder(order_id, 0, "canceled");
+    // ---- DB UPDATE ----
+    Result<void> dbResult = db.updateOrder(
+        order_id,
+        order.qty_remaining,
+        "canceled"
+    );
 
     if (!dbResult.isSuccess())
     {
@@ -192,11 +199,34 @@ Result<void> Engine::cancelOrder(long long order_id)
         return result;
     }
 
-    // map cleanup
+    // ---- RELEASE LOCKS ----
+    if (order.side == "buy")
+    {
+        long long refundAmount = (order.price * order.qty_remaining) / 10000;
+
+        if (order.user_id > 0)
+        {
+            db.releaseCash(order.user_id, refundAmount);
+        }
+    }
+    else if (order.side == "sell")
+    {
+        db.releasePosition(
+            order.user_id,
+            order.bot_id,
+            order.market_id,
+            order.qty_remaining
+        );
+    }
+
+    // ---- CLEAN MAP ----
     orderMarketMap.erase(it);
 
-    // memory cleanup
+    // ---- CLEAN ORDERBOOK ----
     cleanupCancelledAndFilled(market_id);
+
+    canceledOrder.status = "canceled";
+    setOrderHistory(canceledOrder);
 
     return result;
 }
@@ -254,7 +284,25 @@ void Engine::cleanTopSellBook(int market_id)
     }
 }
 
-void Engine::match(int market_id)
+void Engine::setTrade(Trade& t)
+{
+    tradeHistory.push_back(t);
+
+    if (tradeHistory.size() > MAX_TRADE_HISTORY)
+        tradeHistory.erase(tradeHistory.begin());
+}
+
+void Engine::setOrderHistory(Order new_order)
+{
+    orderHistory.push_back(new_order);
+
+    if (orderHistory.size() > MAX_ORDER_HISTORY)
+    {
+        orderHistory.erase(orderHistory.begin());
+    }
+}
+
+void Engine::match(int market_id, const std::string& aggressorSide)
 {
     auto& buys = buyBooks[market_id];
     auto& sells = sellBooks[market_id];
@@ -275,7 +323,14 @@ void Engine::match(int market_id)
 
         if (sameOwner)
         {
-            break;
+            printf("same owner\n");
+            printf("bestBuy %lld\n", bestBuy.created_at);
+            printf("bestsell %lld\n", bestSell.created_at);
+            if (bestBuy.created_at > bestSell.created_at)
+                buys.pop();
+            else
+                sells.pop();
+            continue;
         }
 
         if (bestBuy.price < bestSell.price)
@@ -290,8 +345,8 @@ void Engine::match(int market_id)
         long long buyRemainingAfter = bestBuy.qty_remaining - tradeQty;
         long long sellRemainingAfter = bestSell.qty_remaining - tradeQty;
 
-        std::string buyStatus = (buyRemainingAfter == 0) ? "filled" : "open";
-        std::string sellStatus = (sellRemainingAfter == 0) ? "filled" : "open";
+        std::string buyStatus = (buyRemainingAfter == 0) ? "filled" : "partial";
+        std::string sellStatus = (sellRemainingAfter == 0) ? "filled" : "partial";
 
         Trade t;
         t.market_id = market_id;
@@ -299,15 +354,29 @@ void Engine::match(int market_id)
         t.sell_order_id = bestSell.order_id;
         t.price = tradePrice;
         t.qty = tradeQty;
+        t.buyStatus = buyStatus;
+        t.sellStatus = sellStatus;
+
+        t.buy_user_id = bestBuy.user_id;
+        t.sell_user_id = bestSell.user_id;
+
+        t.buy_bot_id = bestBuy.bot_id;
+        t.sell_bot_id = bestSell.bot_id;
+
+        // time
+        time_t now = time(nullptr);
+        t.trade_time = std::string(ctime(&now));
+        t.trade_time.pop_back(); // remove newline
+
+        t.aggressor_side = aggressorSide;
+
 
         Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
             t,
             bestBuy,
             bestSell,
             buyRemainingAfter,
-            sellRemainingAfter,
-            buyStatus,
-            sellStatus
+            sellRemainingAfter
         );
 
         if (!tradeResult.isSuccess())
@@ -321,11 +390,18 @@ void Engine::match(int market_id)
         bestBuy.qty_remaining = buyRemainingAfter;
         bestSell.qty_remaining = sellRemainingAfter;
 
+        bestBuy.status = buyStatus;
+        bestSell.status = sellStatus;
+
         if (bestBuy.qty_remaining > 0)
             buys.push(bestBuy);
 
         if (bestSell.qty_remaining > 0)
             sells.push(bestSell);
+
+        setTrade(t);
+        setOrderHistory(bestBuy);
+        setOrderHistory(bestSell);
     }
 }
 
@@ -353,7 +429,7 @@ void Engine::matchMarketOrder(Order& incoming)
             long long askRemainingAfter = bestAsk.qty_remaining - tradeQty;
 
             std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "partial";
-            std::string askStatus = (askRemainingAfter == 0) ? "filled" : "open";
+            std::string askStatus = (askRemainingAfter == 0) ? "filled" : "partial";
 
             Trade t;
             t.market_id = market_id;
@@ -361,15 +437,28 @@ void Engine::matchMarketOrder(Order& incoming)
             t.sell_order_id = bestAsk.order_id;
             t.price = tradePrice;
             t.qty = tradeQty;
+            t.buyStatus = incomingStatus;
+            t.sellStatus = askStatus;
+
+            t.buy_user_id = incoming.user_id;
+            t.sell_user_id = bestAsk.user_id;
+
+            t.buy_bot_id = incoming.bot_id;
+            t.sell_bot_id = bestAsk.bot_id;
+
+            // time
+            time_t now = time(nullptr);
+            t.trade_time = std::string(ctime(&now));
+            t.trade_time.pop_back();
+
+            t.aggressor_side = "buy";
 
             Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
                 t,
                 incoming,
                 bestAsk,
                 incomingRemainingAfter,
-                askRemainingAfter,
-                incomingStatus,
-                askStatus
+                askRemainingAfter
             );
 
             if (!tradeResult.isSuccess())
@@ -384,6 +473,13 @@ void Engine::matchMarketOrder(Order& incoming)
 
             incoming.qty_remaining = incomingRemainingAfter;
             bestAsk.qty_remaining = askRemainingAfter;
+
+            incoming.status = incomingStatus;
+            bestAsk.status = askStatus;
+
+            setTrade(t);
+            setOrderHistory(incoming);
+            setOrderHistory(bestAsk);
 
             if (bestAsk.qty_remaining > 0)
                 book.push(bestAsk);
@@ -408,7 +504,7 @@ void Engine::matchMarketOrder(Order& incoming)
             long long bidRemainingAfter = bestBid.qty_remaining - tradeQty;
             long long incomingRemainingAfter = incoming.qty_remaining - tradeQty;
 
-            std::string bidStatus = (bidRemainingAfter == 0) ? "filled" : "open";
+            std::string bidStatus = (bidRemainingAfter == 0) ? "filled" : "partial";
             std::string incomingStatus = (incomingRemainingAfter == 0) ? "filled" : "partial";
 
             Trade t;
@@ -417,15 +513,28 @@ void Engine::matchMarketOrder(Order& incoming)
             t.sell_order_id = incoming.order_id;
             t.price = tradePrice;
             t.qty = tradeQty;
+            t.buyStatus = bidStatus;
+            t.sellStatus = incomingStatus;
+
+            t.buy_user_id = bestBid.user_id;
+            t.sell_user_id = incoming.user_id;
+
+            t.buy_bot_id = bestBid.bot_id;
+            t.sell_bot_id = incoming.bot_id;
+
+            // time
+            time_t now = time(nullptr);
+            t.trade_time = std::string(ctime(&now));
+            t.trade_time.pop_back();
+
+            t.aggressor_side = "sell";
 
             Result<bool> tradeResult = db.recordTradeAndUpdateOrders(
                 t,
                 bestBid,
                 incoming,
                 bidRemainingAfter,
-                incomingRemainingAfter,
-                bidStatus,
-                incomingStatus
+                incomingRemainingAfter
             );
 
             if (!tradeResult.isSuccess())
@@ -440,6 +549,13 @@ void Engine::matchMarketOrder(Order& incoming)
 
             bestBid.qty_remaining = bidRemainingAfter;
             incoming.qty_remaining = incomingRemainingAfter;
+
+            bestBid.status = bidStatus;
+            incoming.status = incomingStatus;
+
+            setTrade(t);
+            setOrderHistory(bestBid);
+            setOrderHistory(incoming);
 
             if (bestBid.qty_remaining > 0)
                 book.push(bestBid);
@@ -495,3 +611,43 @@ std::vector<Order> Engine::getSellOrders(int market_id)
 
     return orders;
 }
+
+Result<Order> Engine::getOrder(long long orderId)
+{
+    Result<Order> result;
+
+    auto it = orderMarketMap.find(orderId);
+
+    if (it == orderMarketMap.end())
+    {
+        result.setError(ErrorType::Validation, "order not found");
+        return result;
+    }
+
+    int marketId = it->second;
+
+    auto buys = getBuyOrders(marketId);
+    auto sells = getSellOrders(marketId);
+
+    for (auto& o : buys)
+    {
+        if (o.order_id == orderId)
+        {
+            result.value = o;
+            return result;
+        }
+    }
+
+    for (auto& o : sells)
+    {
+        if (o.order_id == orderId)
+        {
+            result.value = o;
+            return result;
+        }
+    }
+
+    result.setError(ErrorType::Validation, "order not found");
+    return result;
+}
+

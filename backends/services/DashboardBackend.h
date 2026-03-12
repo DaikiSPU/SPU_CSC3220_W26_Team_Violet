@@ -16,9 +16,38 @@ struct DashboardData
     long long rawEquity = 0;
 };
 
+struct TradeHistoryRow
+{
+    std::string time;
+    std::string market;
+    std::string side;
+    long long price;
+    long long qty;
+    std::string status;
+    std::string aggressor_side;
+};
+
+struct OpenOrdersRow
+{
+    long long order_id;
+    std::string time;
+    std::string market;
+    std::string side;
+    long long price;
+    long long qty_remaining;
+    std::string status;
+};
+
+struct market
+{
+    int marketId;
+    std::string marketName;
+    std::string marketSymbol;
+};
+
 class DashboardBackend {
 public:
-    DashboardBackend(BackendContext& backendContext) : db(backendContext.db), appData(backendContext.appData), engine(backendContext.engine) {}
+    DashboardBackend(BackendContext& backendContext);
 
     void refreshHeader(int marketId);
     OrderBookSnapshot refreshOrderBook(int marketId) const;
@@ -27,6 +56,12 @@ public:
     const DashboardData& getData() const { return data; }
     long long getAvailableCash();
     long long getPosition(int currentMarketId);
+    Result<std::vector<TradeHistoryRow>> getTradeHistory();
+    Result<std::vector<OrderHistoryRow>> getOrderHistory();
+
+    Result<std::vector<OpenOrdersRow>> getOpenOrders();
+    Result<void> cancelOrder(long long orderId);
+
     
 
 private:
@@ -34,4 +69,8 @@ private:
     Database& db;
     AppData& appData;
     Engine& engine;
+    std::vector<market> markets;
+
+    std::string getMarketName(int marketId);
+    std::string getMarketSymbol(int marketId);
 };

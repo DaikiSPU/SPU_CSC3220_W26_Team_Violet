@@ -23,6 +23,9 @@ class Dashboard : public Page {
         // Define transaction table size
         const ImVec2 transaction = ImVec2(0, 200);
 
+        void orderHistoryWindow();
+        void openOrdersWindow();
+
         // min width cannot support in docker
         // const ImVec2 headerMinSize = ImVec2(200.0f, 100.0f);
         // const ImVec2 orderBookMinSize = ImVec2(180.0f, 300.0f);
@@ -69,6 +72,6 @@ class Dashboard : public Page {
 
         int current_market_id;
         int selectedMarketId;
-        int qty = 0;
-        int price = 0;
+        double qty = 0.0;
+        double price = 0.0;
 };

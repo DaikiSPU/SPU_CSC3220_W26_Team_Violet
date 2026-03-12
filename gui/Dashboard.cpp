@@ -66,7 +66,7 @@ PageType Dashboard::draw()
         // Root
         ImGuiID dock_main_id = dockspace_id;
 
-        // Bottom history (bottom 25%)
+        // Bottom history (bottom 30%)
         ImGuiID dock_transactions_id = ImGui::DockBuilderSplitNode(
             dock_main_id,
             ImGuiDir_Down,
@@ -94,10 +94,16 @@ PageType Dashboard::draw()
         // Dock windows
         ImGui::DockBuilderDockWindow("OrderBook", dock_order_book_id);
         ImGui::DockBuilderDockWindow("OrderEntry", dock_order_entry_id);
-        ImGui::DockBuilderDockWindow("TradeHistory", dock_transactions_id);
+
+        // history系 → 同じ node
+        ImGui::DockBuilderDockWindow("Trade History", dock_transactions_id);
+        ImGui::DockBuilderDockWindow("Open Orders", dock_transactions_id);
+        ImGui::DockBuilderDockWindow("Order History", dock_transactions_id);
+
         ImGui::DockBuilderDockWindow("Chart", dock_main_id);
 
         ImGui::DockBuilderFinish(dockspace_id);
+
     }
 
     // End host window
@@ -110,6 +116,10 @@ PageType Dashboard::draw()
     orderEntryWindow();
 
     transactionWindow();
+
+    openOrdersWindow();
+
+    orderHistoryWindow();
 
     if (Popup::showMessage("Fatal Error", errorManager.getErrors(), "CLOSE WINDOW"))
     {
@@ -294,7 +304,7 @@ void Dashboard::orderBookWindow()
 
             ImGui::TableSetColumnIndex(1);
             double size = level.size / 10000.0;
-            ImGui::Text("%.4f", size);
+            ImGui::Text("%.2f", size);
         }
 
         ImGui::EndTable();
@@ -323,7 +333,7 @@ void Dashboard::orderBookWindow()
 
             ImGui::TableSetColumnIndex(1);
             double size = level.size / 10000.0;
-            ImGui::Text("%.4f", size);
+            ImGui::Text("%.2f", size);
         }
 
         ImGui::EndTable();
@@ -405,23 +415,16 @@ void Dashboard::orderEntryWindow()
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Price");
-
         ImGui::TableSetColumnIndex(1);
-
-        // float priceRow = ImGui::GetContentRegionAvail().x;
-        // ImVec2 priceTextSize = ImGui::CalcTextSize("0");
-
-        // ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (priceRow - priceTextSize.x));
-        // ImGui::Text("0");
-
-        ImGui::InputInt("##price", &price);
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputDouble("##price", &price, 0.01, 1.0, "%.2f");
 
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Quantity");
         ImGui::TableSetColumnIndex(1);
         ImGui::SetNextItemWidth(-1);
-        ImGui::InputInt("##qty", &qty);
+        ImGui::InputDouble("##qty", &qty, 0.01, 1.0, "%.2f");
 
         ImGui::EndTable();
     }
@@ -466,9 +469,9 @@ void Dashboard::orderEntryWindow()
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availableCashRow - availableCashTextSize.x));
         ImGui::Text("%s", availableCashText);
 
-        float position = backend.getPosition(current_market_id) / 10000;
+        float position = backend.getPosition(current_market_id) / 10000.0;
         char positionhText[32];
-        snprintf(positionhText, sizeof(positionhText), "%f", position);
+        snprintf(positionhText, sizeof(positionhText), "%.2f", position);
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::Text("Position");
@@ -485,6 +488,8 @@ void Dashboard::orderEntryWindow()
 
     ImGui::Separator();
 
+    bool validOrder = price > 0 && qty > 0 && orderState != OrderState::None;
+    ImGui::BeginDisabled(!validOrder);
     if (ImGui::Button("Place Order", ImVec2(-1, 0))) 
     {
         std::string side;
@@ -492,18 +497,19 @@ void Dashboard::orderEntryWindow()
             side = "buy";
         else
             side = "sell";
-        Result<void> result = backend.placeOrder(current_market_id, side, price, qty);
-        if (!result.isSuccess() && side == "buy")
+        Result<void> result = backend.placeOrder(current_market_id, side, price * 10000, qty * 10000);
+        if (!result.isSuccess())
         {
+            errorManager.addError(result.error);
             ImGui::OpenPopup("Place Order Error");
         }
-        else if (!result.isSuccess() && side == "sell")
+        else
         {
-            ImGui::OpenPopup("Place Order Error");
+            backend.refreshHeader(current_market_id);
+            orderState = OrderState::None;
         }
-
-        backend.refreshHeader(current_market_id);
     }
+    ImGui::EndDisabled();
 
     if (Popup::showMessage("Place Order Error", errorManager.getErrors(), "OK"))
     {
@@ -514,11 +520,26 @@ void Dashboard::orderEntryWindow()
 
 void Dashboard::transactionWindow()
 {
-    /* ================= TRADE HISTORY WINDOW ================= */
-    // Begin trade history window
-    ImGui::Begin("TradeHistory");
+    ImGui::Begin("Trade History");
 
-    // Create history table
+    auto result = backend.getTradeHistory();
+
+    if (!result.isSuccess())
+    {
+        ImGui::Text("Failed to load trade history");
+        ImGui::End();
+        return;
+    }
+
+    auto& trades = result.value;
+
+    if (trades.empty())
+    {
+        ImGui::TextDisabled("No trade history yet.");
+        ImGui::End();
+        return;
+    }
+
     if (ImGui::BeginTable("HistoryTable", 6, tableFlags))
     {
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -532,27 +553,34 @@ void Dashboard::transactionWindow()
 
         ImGui::TableHeadersRow();
 
-        for (int i = 0; i < 5; ++i)
+        int maxRows = std::min((int)trades.size(), 100);
+
+        for (int i = 0; i < maxRows; ++i)
         {
+            const auto& t = trades[trades.size() - 1 - i];
+
             ImGui::TableNextRow();
 
             ImGui::TableNextColumn();
-            ImGui::Text("00:00:0%d", i);
+            ImGui::Text("%s", t.time.c_str());
 
             ImGui::TableNextColumn();
-            ImGui::Text("SPU");
+            ImGui::Text("%s", t.market.c_str());
 
             ImGui::TableNextColumn();
-            ImGui::Text(i % 2 ? "Buy" : "Sell");
+            if (t.aggressor_side == "buy")
+                ImGui::TextColored(ImVec4(0.2f,0.8f,0.2f,1),"Buy");
+            else
+                ImGui::TextColored(ImVec4(0.9f,0.2f,0.2f,1),"Sell");
 
             ImGui::TableNextColumn();
-            ImGui::Text("100.00");
+            ImGui::Text("%.2f", t.price / 10000.0);
 
             ImGui::TableNextColumn();
-            ImGui::Text("%d", 10 + i);
+            ImGui::Text("%.2f", t.qty / 10000.0);
 
             ImGui::TableNextColumn();
-            ImGui::Text("Filled");
+            ImGui::Text("%s", t.status.c_str());
         }
 
         ImGui::EndTable();
@@ -560,6 +588,165 @@ void Dashboard::transactionWindow()
 
     ImGui::End();
 }
+
+
+void Dashboard::openOrdersWindow()
+{
+    ImGui::Begin("Open Orders");
+
+    auto result = backend.getOpenOrders();
+
+    if (!result.isSuccess())
+    {
+        ImGui::Text("Failed to load orders");
+        return;
+    }
+
+    auto& orders = result.value;
+
+    if (orders.empty())
+    {
+        ImGui::TextDisabled("No open orders.");
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::BeginTable("OpenOrders", 7, tableFlags))
+    {
+        ImGui::TableSetupScrollFreeze(0,1);
+
+        ImGui::TableSetupColumn("Time");
+        ImGui::TableSetupColumn("Market");
+        ImGui::TableSetupColumn("Side");
+        ImGui::TableSetupColumn("Price");
+        ImGui::TableSetupColumn("Remaining");
+        ImGui::TableSetupColumn("Status");
+        ImGui::TableSetupColumn("Action");
+
+        ImGui::TableHeadersRow();
+
+        for (auto& o : orders)
+        {
+            ImGui::TableNextRow();
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.time.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.market.c_str());
+
+            ImGui::TableNextColumn();
+            if (o.side == "buy")
+                ImGui::TextColored(ImVec4(0.2f,0.8f,0.2f,1), "Buy");
+            else
+                ImGui::TextColored(ImVec4(0.9f,0.2f,0.2f,1), "Sell");
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.2f", o.price / 10000.0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.2f", o.qty_remaining / 10000.0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.status.c_str());
+
+            ImGui::TableNextColumn();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f,0.2f,0.2f,1));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f,0.3f,0.3f,1));
+
+            if (ImGui::Button(("Cancel##" + std::to_string(o.order_id)).c_str()))
+            {
+                Result<void> result = backend.cancelOrder(o.order_id);
+
+                if (!result.isSuccess())
+                {
+                    errorManager.addError(result.error);
+                    ImGui::OpenPopup("Cancel Order Error");
+                }
+            }
+
+            ImGui::PopStyleColor(2);
+        }
+
+        ImGui::EndTable();
+    }
+
+    if (Popup::showMessage("Cancel Order Error", errorManager.getErrors(), "OK"))
+    {
+        errorManager.clear();
+    }
+
+    ImGui::End();
+}
+
+void Dashboard::orderHistoryWindow()
+{
+    ImGui::Begin("Order History");
+
+    auto result = backend.getOrderHistory();
+    if (!result.isSuccess())
+    {
+        ImGui::Text("Failed to load orders");
+        return;
+    }
+
+    auto& orders = result.value;
+
+    if (orders.empty())
+    {
+        ImGui::TextDisabled("No order history yet.");
+        ImGui::End();
+        return;
+    }
+
+    if (ImGui::BeginTable("OrderHistory", 7, tableFlags))
+    {
+        ImGui::TableSetupScrollFreeze(0,1);
+
+        ImGui::TableSetupColumn("Time");
+        ImGui::TableSetupColumn("Market");
+        ImGui::TableSetupColumn("Side");
+        ImGui::TableSetupColumn("Price");
+        ImGui::TableSetupColumn("Quantity");
+        ImGui::TableSetupColumn("Remaining");
+        ImGui::TableSetupColumn("Status");
+
+        ImGui::TableHeadersRow();
+
+        for (auto& o : orders)
+        {
+            ImGui::TableNextRow();
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.time.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.marketSymbol.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.side.c_str());
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.2f", o.price / 10000.0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.2f", o.qty / 10000.0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%.2f", o.qty_remaining / 10000.0);
+
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", o.status.c_str());
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::End();
+}
+
+
 
 PageType Dashboard::DashboardMenu()
 {
